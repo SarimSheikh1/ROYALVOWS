@@ -1,5 +1,5 @@
 import { UploadMedia } from "./extras";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, useData, State, money, type Row } from "./core";
 type Field = {
@@ -46,6 +46,10 @@ const config: Record<string, { path: string; fields: Field[] }> = {
     fields: [
       { key: "name", label: "Palace name" },
       { key: "city", label: "City" },
+      { key: "address", label: "Verified address" },
+      { key: "parkingCapacity", label: "Parking capacity", type: "number" },
+      { key: "floorPlan", label: "Floor-plan image URL" },
+      { key: "demo", label: "Illustrative demo venue", type: "boolean" },
       { key: "capacity", label: "Guest capacity", type: "number" },
       { key: "rental", label: "Rental (PKR)", type: "number", money: true },
       { key: "outdoor", label: "Outdoor setting", type: "boolean" },
@@ -474,6 +478,13 @@ export function Settings() {
       contactConfigured: false,
     }),
     [message, setMessage] = useState("");
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (q.data && !loaded) {
+      setForm({ ...form, ...(q.data as any) });
+      setLoaded(true);
+    }
+  }, [q.data, loaded]);
   return (
     <form
       className="panel"

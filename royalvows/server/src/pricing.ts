@@ -1,3 +1,6 @@
+export class PricingError extends Error {
+  status = 400;
+}
 export function price(
   venue: { rental: number; capacity: number; taxBps: number },
   pack: {
@@ -15,7 +18,7 @@ export function price(
     guests < pack.minGuests ||
     guests > Math.min(venue.capacity, pack.maxGuests)
   )
-    throw new Error("Guest count outside venue or collection limits");
+    throw new PricingError("Guest count outside venue or collection limits");
   const rate = extras.menuPerHead ?? pack.perHead,
     addons = extras.addons || 0,
     discount = extras.discount || 0;
@@ -28,14 +31,14 @@ export function price(
     venue.taxBps,
   ])
     if (!Number.isSafeInteger(n) || n < 0)
-      throw new Error("Invalid catalog rate");
-  if (venue.taxBps > 10000) throw new Error("Invalid tax rate");
+      throw new PricingError("Invalid catalog rate");
+  if (venue.taxBps > 10000) throw new PricingError("Invalid tax rate");
   const catering = guests * rate;
   const subtotal = venue.rental + catering + pack.decor + addons;
-  if (discount > subtotal) throw new Error("Discount exceeds subtotal");
+  if (discount > subtotal) throw new PricingError("Discount exceeds subtotal");
   const tax = Math.round(((subtotal - discount) * venue.taxBps) / 10000);
   if (!Number.isSafeInteger(subtotal - discount + tax))
-    throw new Error("Invalid estimate");
+    throw new PricingError("Invalid estimate");
   return {
     collection: pack.name,
     rental: venue.rental,

@@ -28,6 +28,7 @@ const child = spawn(
       CLIENT_ORIGIN: "http://localhost:5173",
       PORT: String(port),
       SMTP_HOST: "",
+      CLOUDINARY_URL: "",
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -143,6 +144,13 @@ try {
         )
       ).status,
       404,
+    );
+  });
+  await check("tampered signed session cookie is rejected", async () => {
+    const tampered = { ...a, cookie: a.cookie + "tampered" };
+    assert.equal(
+      (await request("/bookings", "GET", undefined, tampered)).status,
+      401,
     );
   });
   await check("CSRF rejects authenticated mutation", async () => {
@@ -401,11 +409,101 @@ try {
       );
     },
   );
+  await check(
+    "verified upload re-encodes images and rejects executables",
+    async () => {
+      const image = await (
+        await import("node:fs/promises")
+      ).readFile("client/public/media/palace-aerial-concept.webp");
+      const form = new FormData();
+      form.append("file", new Blob([image]), "test.webp");
+      const r = await fetch("http://127.0.0.1:" + port + "/api/admin/uploads", {
+        method: "POST",
+        headers: {
+          Origin: "http://localhost:5173",
+          Cookie: admin.cookie,
+          "X-CSRF-Token": admin.csrf,
+        },
+        body: form,
+      });
+      assert.equal(r.status, 201);
+      const j = await r.json();
+      const downloaded = await fetch("http://127.0.0.1:" + port + j.data.url);
+      const data = Buffer.from(await downloaded.arrayBuffer());
+      assert.equal(data.subarray(0, 4).toString(), "RIFF");
+      assert.equal(data.subarray(8, 12).toString(), "WEBP");
+      const bad = new FormData();
+      bad.append(
+        "file",
+        new Blob(['<svg onload="alert(1)"></svg>'], { type: "image/svg+xml" }),
+        "bad.svg",
+      );
+      const denied = await fetch(
+        "http://127.0.0.1:" + port + "/api/admin/uploads",
+        {
+          method: "POST",
+          headers: {
+            Origin: "http://localhost:5173",
+            Cookie: admin.cookie,
+            "X-CSRF-Token": admin.csrf,
+          },
+          body: bad,
+        },
+      );
+      assert.equal(denied.status, 400);
+    },
+  );
   await check("stock operations are denied to customers", async () =>
     assert.equal(
       (await request("/admin/inventory", "GET", undefined, a)).status,
       403,
     ),
+  );
+  await check(
+    "financial reversals append history and retry safely",
+    async () => {
+      const refundEntry = await Ledger.findOne({ type: "Refund" });
+      const paymentEntry = await Ledger.findOne({ type: "Payment" });
+      const body = { reference: "QA correction", key: crypto.randomUUID() };
+      assert.equal(
+        (
+          await request(
+            "/ledger/" + refundEntry!._id + "/reverse",
+            "POST",
+            body,
+            admin,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request(
+            "/ledger/" + refundEntry!._id + "/reverse",
+            "POST",
+            body,
+            admin,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request(
+            "/ledger/" + paymentEntry!._id + "/reverse",
+            "POST",
+            { ...body, key: crypto.randomUUID() },
+            admin,
+          )
+        ).status,
+        200,
+      );
+      const totals = await Ledger.aggregate([
+        { $group: { _id: null, total: { $sum: "$amount" } } },
+      ]);
+      assert.equal(totals[0].total, 0);
+      assert.equal(await Ledger.countDocuments(), 4);
+    },
   );
   await check(
     "cancellation releases inventory and permits rebooking",

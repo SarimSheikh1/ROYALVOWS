@@ -17,6 +17,7 @@ const env = {
   ADMIN_NAME: "Demo Administrator",
   ADMIN_PASSWORD: password,
   SMTP_HOST: "",
+  CLOUDINARY_URL: "",
   NODE_ENV: "development",
 };
 const children: any[] = [];

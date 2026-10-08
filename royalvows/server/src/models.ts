@@ -44,10 +44,17 @@ export const Venue = mongoose.model(
     {
       name: { type: String, unique: true },
       city: String,
+      address: String,
+      parkingCapacity: Number,
+      floorPlan: String,
       capacity: Number,
       rental: Number,
       outdoor: Boolean,
       description: String,
+      eventTypes: {
+        type: [String],
+        default: ["Barat", "Walima", "Mehndi", "Nikah"],
+      },
       amenities: [String],
       image: String,
       demo: { type: Boolean, default: true },

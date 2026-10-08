@@ -1272,3 +1272,14 @@ textarea {
     grid-template-columns: 1fr;
   }
 }
+
+.published-review {
+  border-left: 2px solid var(--gold);
+  padding-left: 30px;
+  margin: 35px 0;
+  max-width: 750px;
+}
+.published-review p {
+  font-family: Georgia, serif;
+  font-size: 22px;
+}

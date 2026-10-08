@@ -1,3 +1,5 @@
+import { businessDate } from "./core";
+import { ReviewSubmission } from "./reviews";
 import { TaskBoard, TeamReports } from "./team";
 import { SavedPalaces } from "./saved";
 import { PasswordHelp, GuestTools, Reschedule, Maintenance } from "./extras";
@@ -163,6 +165,7 @@ export function Portal() {
         "Consultations",
         "Inquiries",
         "Saved palaces",
+        "Reviews",
         "Profile",
         "Notifications",
       ]
@@ -259,10 +262,15 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
     [message, setMessage] = useState(""),
     [input, setInput] = useState(""),
     [method, setMethod] = useState(""),
-    [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+    [date, setDate] = useState(businessDate());
   const customer = user.role === "Customer",
     admin = user.role === "Super Admin";
   const b = bookings.data?.find((b) => b._id === selected);
+  const team = useQuery<Row[]>({
+    queryKey: ["team-members"],
+    queryFn: () => api("/team-members"),
+    enabled: !customer && user.role !== "Staff",
+  });
   const path = (
     {
       Payments: "/payments",
@@ -284,10 +292,8 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
     enabled: !!path,
     retry: 1,
   });
-  const [from, setFrom] = useState(
-      new Date().toISOString().slice(0, 7) + "-01",
-    ),
-    [to, setTo] = useState(new Date().toISOString().slice(0, 10));
+  const [from, setFrom] = useState(businessDate().slice(0, 7) + "-01"),
+    [to, setTo] = useState(businessDate());
   const report = useQuery<Row>({
     queryKey: ["report", from, to],
     queryFn: () => api("/reports?from=" + from + "&to=" + to),
@@ -311,6 +317,7 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
       </select>
     </label>
   );
+  if (tab === "Reviews" && customer) return <ReviewSubmission />;
   if (
     [
       "Inventory",
@@ -338,9 +345,7 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
             <small>UPCOMING EVENTS</small>
             <h2>
               {bookings.data?.filter(
-                (b) =>
-                  b.date >= new Date().toISOString().slice(0, 10) &&
-                  b.status !== "Cancelled",
+                (b) => b.date >= businessDate() && b.status !== "Cancelled",
               ).length ?? "?"}
             </h2>
           </article>
@@ -392,8 +397,19 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
             <h2>Create an event task</h2>
             {pick}
             <label>
-              Assignee user ID
-              <input value={input} onChange={(e) => setInput(e.target.value)} />
+              Assigned team member
+              <select
+                aria-label="Assigned team member"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+              >
+                <option value="">Choose team member</option>
+                {team.data?.map((u) => (
+                  <option key={u._id} value={u._id}>
+                    {u.name} - {u.role}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               Preparation requirement
@@ -637,7 +653,7 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
                 </p>
               )}
             </div>
-            <div className="record-actions">
+            <div className="record-actions">{admin&&((tab==="Ledger"&&["Payment","Refund","Supplier Payment"].includes(r.type))||(tab==="Expenses"&&r.amount>0))&&<Action run={()=>{const reference=prompt("Reason/reference for reversal");if(!reference)return Promise.resolve();return api((tab==="Ledger"?"/ledger/":"/expenses/")+r._id+"/reverse","POST",{reference,key:crypto.randomUUID()});}}>Record reversal</Action>}
               {tab === "Payments" && r.status === "Approved" && (
                 <a
                   href={"/api/payments/" + r._id + "/receipt"}
@@ -733,6 +749,12 @@ function BookingRow({
 }) {
   const [amount, setAmount] = useState(""),
     [ref, setRef] = useState("");
+  const [managerId, setManagerId] = useState(b.manager || "");
+  const team = useQuery<Row[]>({
+    queryKey: ["team-members"],
+    queryFn: () => api("/team-members"),
+    enabled: admin,
+  });
   const next: Record<string, string> = {
     Pending: "Awaiting Advance",
     "Awaiting Advance": "Confirmed",
@@ -807,7 +829,7 @@ function BookingRow({
               />
             </label>
             <label>
-              Reference or manager ID
+              Refund reference
               <input value={ref} onChange={(e) => setRef(e.target.value)} />
             </label>
             <Action
@@ -821,10 +843,31 @@ function BookingRow({
             >
               Record issued refund
             </Action>
+            <label>
+              Assigned manager
+              <select
+                aria-label="Assigned manager"
+                value={managerId}
+                onChange={(e) => setManagerId(e.target.value)}
+              >
+                <option value="">Choose hall manager</option>
+                {team.data
+                  ?.filter(
+                    (u) =>
+                      u.role === "Hall Manager" &&
+                      u.venues.includes(b.venue?._id),
+                  )
+                  .map((u) => (
+                    <option key={u._id} value={u._id}>
+                      {u.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
             <Action
               run={() =>
                 api("/bookings/" + b._id + "/manager", "PATCH", {
-                  manager: ref,
+                  manager: managerId,
                 })
               }
             >
@@ -970,35 +1013,39 @@ function WeddingPlan({ booking: b }: { booking: Row }) {
 }
 function UserEditor({ user }: { user: Row }) {
   const [role, setRole] = useState(user.role),
-    [venues, setVenues] = useState(user.venues.join(","));
+    [assigned, setAssigned] = useState<string[]>(user.venues);
+  const venues = useData("/venues");
   return (
     <details>
       <summary>Permissions & assignments</summary>
       <label>
         Role
-        <select
-          aria-label="Role"
-          value={role}
-          onChange={(e) => setRole(e.target.value)}
-        >
+        <select value={role} onChange={(e) => setRole(e.target.value)}>
           {["Customer", "Branch Admin", "Hall Manager", "Staff"].map((r) => (
             <option key={r}>{r}</option>
           ))}
         </select>
       </label>
-      <label>
-        Venue IDs (comma-separated)
-        <input value={venues} onChange={(e) => setVenues(e.target.value)} />
-      </label>
+      <h4>Assigned palaces</h4>
+      {venues.data?.map((v) => (
+        <label className="check" key={v._id}>
+          <input
+            type="checkbox"
+            checked={assigned.includes(v._id)}
+            onChange={(e) =>
+              setAssigned(
+                e.target.checked
+                  ? [...assigned, v._id]
+                  : assigned.filter((id) => id !== v._id),
+              )
+            }
+          />
+          {v.name}
+        </label>
+      ))}
       <Action
         run={() =>
-          api("/admin/users/" + user._id, "PATCH", {
-            role,
-            venues: venues
-              .split(",")
-              .map((s: string) => s.trim())
-              .filter(Boolean),
-          })
+          api("/admin/users/" + user._id, "PATCH", { role, venues: assigned })
         }
       >
         Save permissions

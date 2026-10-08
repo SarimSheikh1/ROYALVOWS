@@ -1,9 +1,10 @@
+import { businessDate } from "./core";
 import { useState } from "react";
 import { useData, State, type Row } from "./core";
 export function EventCalendar() {
   const q = useData("/bookings");
   const [mode, setMode] = useState("Month"),
-    [day, setDay] = useState(new Date().toISOString().slice(0, 10)),
+    [day, setDay] = useState(businessDate()),
     [venue, setVenue] = useState(""),
     [status, setStatus] = useState(""),
     [selected, setSelected] = useState<Row | null>(null);

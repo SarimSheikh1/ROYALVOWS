@@ -1,3 +1,5 @@
+import { businessDate } from "./core";
+import { PublishedReviews } from "./reviews";
 import { SaveVenue } from "./saved";
 import { MediaGallery } from "./media";
 import { useState, useEffect } from "react";
@@ -5,7 +7,7 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { ArrowUpRight, ArrowRight } from "lucide-react";
-import { motion } from "motion/react";
+import { motion, useReducedMotion } from "motion/react";
 import {
   api,
   useData,
@@ -43,6 +45,7 @@ function Intro() {
   ) : null;
 }
 export function Home() {
+  const reduced = useReducedMotion();
   const venues = useData("/venues");
   return (
     <>
@@ -57,7 +60,7 @@ export function Home() {
         <div className="hero-copy">
           <span className="eyebrow">A CELEBRATION BEYOND THE ORDINARY</span>
           <motion.h1
-            initial={{ opacity: 0, y: 12 }}
+            initial={reduced ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
           >
             Every love story
@@ -210,6 +213,7 @@ export function Home() {
           Explore signature experiences <ArrowUpRight />
         </Link>
       </section>
+      <PublishedReviews />
       <section className="cta">
         <span className="eyebrow">YOUR NEXT CHAPTER STARTS HERE</span>
         <h2>
@@ -228,12 +232,22 @@ export function Palaces() {
   const [search, setSearch] = useState(""),
     [guests, setGuests] = useState(""),
     [outdoor, setOutdoor] = useState("");
+  const [city, setCity] = useState(""),
+    [minPrice, setMinPrice] = useState(""),
+    [maxPrice, setMaxPrice] = useState(""),
+    [event, setEvent] = useState(""),
+    [facility, setFacility] = useState("");
   const q = useData(
     "/venues?" +
       new URLSearchParams({
         search,
         ...(guests ? { guests } : {}),
         ...(outdoor ? { outdoor } : {}),
+        ...(city ? { city } : {}),
+        ...(minPrice ? { minPrice: String(Number(minPrice) * 100) } : {}),
+        ...(maxPrice ? { maxPrice: String(Number(maxPrice) * 100) } : {}),
+        ...(event ? { event } : {}),
+        ...(facility ? { facility } : {}),
       }),
   );
   return (
@@ -276,10 +290,72 @@ export function Palaces() {
             setSearch("");
             setGuests("");
             setOutdoor("");
+            setCity("");
+            setMinPrice("");
+            setMaxPrice("");
+            setEvent("");
+            setFacility("");
           }}
         >
           Reset filters
         </button>
+        <label>
+          City
+          <input
+            value={city}
+            onChange={(e) => setCity(e.target.value)}
+            placeholder="Exact city name"
+          />
+        </label>
+        <label>
+          Minimum rental (PKR)
+          <input
+            type="number"
+            min="0"
+            value={minPrice}
+            onChange={(e) => setMinPrice(e.target.value)}
+          />
+        </label>
+        <label>
+          Maximum rental (PKR)
+          <input
+            type="number"
+            min="0"
+            value={maxPrice}
+            onChange={(e) => setMaxPrice(e.target.value)}
+          />
+        </label>
+        <label>
+          Occasion
+          <select
+            aria-label="Filter occasion"
+            value={event}
+            onChange={(e) => setEvent(e.target.value)}
+          >
+            <option value="">All occasions</option>
+            {events.map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Facility
+          <select
+            aria-label="Filter facility"
+            value={facility}
+            onChange={(e) => setFacility(e.target.value)}
+          >
+            <option value="">All facilities</option>
+            {[
+              "Bridal suite",
+              "Groom suite",
+              "Accessible entry",
+              "Climate control",
+            ].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
       </div>
       <State query={q} />
       {q.data?.length === 0 && (
@@ -299,7 +375,7 @@ export function Palace() {
     queryKey: ["venue", id],
     queryFn: () => api("/venues/" + id),
   });
-  const [month, setMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [month, setMonth] = useState(businessDate().slice(0, 7));
   const avail = useData("/availability/" + id + "?month=" + month);
   const v = q.data;
   return (
@@ -310,7 +386,9 @@ export function Palace() {
           <div className="detail-hero">
             <img src={v.image} alt={"Demo venue atmosphere: " + v.name} />
             <div>
-              <span className="eyebrow">DEMO VENUE &middot; {v.city}</span>
+              <span className="eyebrow">
+                {v.demo ? "DEMO VENUE" : "PALACE COLLECTION"} &middot; {v.city}
+              </span>
               <h1>{v.name}</h1>
               <p>{v.description}</p>
               <Link className="button" to={"/planning?venue=" + id}>
@@ -329,10 +407,26 @@ export function Palace() {
               {v.amenities.map((a: string) => (
                 <p key={a}>&middot; {a}</p>
               ))}
-              <p className="notice">
-                Address, parking capacity, floor plans and authentic venue media
-                await owner configuration.
-              </p>
+              {v.address ? (
+                <address>{v.address}</address>
+              ) : (
+                <p className="notice">
+                  Verified address awaits owner configuration.
+                </p>
+              )}
+              {v.parkingCapacity > 0 && (
+                <p>Parking capacity: {v.parkingCapacity} vehicles</p>
+              )}
+              {v.floorPlan && (
+                <a
+                  className="text-link"
+                  href={v.floorPlan}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  View seating / floor plan
+                </a>
+              )}
             </div>
             <div>
               <h2>Availability</h2>
@@ -546,7 +640,7 @@ export function Planning() {
                   Date
                   <input
                     type="date"
-                    min={new Date().toISOString().slice(0, 10)}
+                    min={businessDate()}
                     value={form.date}
                     onChange={(e) => set("date", e.target.value)}
                   />
@@ -734,6 +828,10 @@ export function Planning() {
   );
 }
 export function Contact() {
+  const settings = useQuery<Row>({
+    queryKey: ["public-settings"],
+    queryFn: () => api("/settings"),
+  });
   const { data: user } = useUser();
   const {
     register,
@@ -755,9 +853,27 @@ export function Contact() {
           Tell us what you imagine. Submit an inquiry or request a consultation
           from your portal.
         </p>
-        <p className="notice">
-          Phone, address and WhatsApp await owner configuration.
-        </p>
+        {settings.data?.contactConfigured ? (
+          <address>
+            <p>{settings.data.address}</p>
+            <a href={"tel:" + settings.data.phone}>{settings.data.phone}</a>
+            {settings.data.whatsapp && (
+              <p>
+                <a
+                  href={"https://wa.me/" + settings.data.whatsapp}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  WhatsApp inquiry
+                </a>
+              </p>
+            )}
+          </address>
+        ) : (
+          <p className="notice">
+            Phone, address and WhatsApp await owner configuration.
+          </p>
+        )}
         <Link className="button" to={user ? "/portal" : "/login"}>
           Request a private tour
         </Link>

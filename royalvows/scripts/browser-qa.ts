@@ -1,6 +1,6 @@
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { chromium, expect } from "@playwright/test";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
@@ -12,7 +12,7 @@ const db = await MongoMemoryReplSet.create({
 });
 const uri = db.getUri("royalvows_browser_demo");
 const password = randomBytes(18).toString("base64url");
-const origin = "http://127.0.0.1:5173";
+const origin = "http://127.0.0.1:5174";
 const children: any[] = [];
 function launch(args: string[], env: any = {}, cwd = process.cwd()) {
   const c = spawn(process.execPath, args, {
@@ -70,18 +70,27 @@ try {
     MONGODB_URI: uri,
     SESSION_SECRET: randomBytes(48).toString("hex"),
     CLIENT_ORIGIN: origin,
-    PORT: "4000",
+    PORT: "4102",
+    SMTP_HOST: "",
+    CLOUDINARY_URL: "",
   });
   launch(
-    ["../node_modules/vite/bin/vite.js", "--host", "127.0.0.1"],
-    {},
+    [
+      "../node_modules/vite/bin/vite.js",
+      "--host",
+      "127.0.0.1",
+      "--port",
+      "5174",
+      "--strictPort",
+    ],
+    { API_PROXY_TARGET: "http://127.0.0.1:4102" },
     process.cwd() + "/client",
   );
   for (let i = 0; i < 150; i++) {
     try {
       if (
         (await fetch(origin)).ok &&
-        (await fetch("http://127.0.0.1:4000/api/health")).ok
+        (await fetch("http://127.0.0.1:4102/api/health")).ok
       )
         break;
     } catch {}
@@ -159,7 +168,7 @@ try {
   await page.getByRole("button", { name: "Move to Confirmed" }).click();
   await expect(page.getByText("Confirmed", { exact: true })).toBeVisible();
   await page.getByText("Refund / assign manager", { exact: true }).click();
-  await page.getByLabel("Reference or manager ID").fill(String(manager._id));
+  await page.getByLabel("Assigned manager").selectOption(String(manager._id));
   await page
     .getByRole("button", { name: "Assign manager", exact: true })
     .click();
@@ -172,7 +181,9 @@ try {
     origin + (await invoice.getAttribute("href")),
   );
   expect(r.status()).toBe(200);
-  expect((await r.body()).subarray(0, 4).toString()).toBe("%PDF");
+  const invoiceBytes = await r.body();
+  expect(invoiceBytes.subarray(0, 4).toString()).toBe("%PDF");
+  await writeFile("qa/invoice.pdf", invoiceBytes);
   await page.screenshot({ path: "qa/admin-desktop.png", fullPage: true });
   console.log("PASS authorized invoice download");
   await page.getByRole("button", { name: "Sign out" }).click();

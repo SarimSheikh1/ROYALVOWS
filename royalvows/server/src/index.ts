@@ -52,7 +52,7 @@ app.disable("x-powered-by");
 app.use(helmet());
 app.use(cors({ origin: env.CLIENT_ORIGIN, credentials: true }));
 app.use(express.json({ limit: "256kb" }));
-app.use(cookieParser());
+app.use(cookieParser(env.SESSION_SECRET));
 app.use("/api", rateLimit({ windowMs: 60000, limit: 180 }));
 const hash = (s: string) =>
   createHmac("sha256", env.SESSION_SECRET).update(s).digest("hex");
@@ -60,9 +60,9 @@ const fail = (message: string, status = 400) =>
   Object.assign(new Error(message), { status });
 app.use(async (req: any, res, next) => {
   try {
-    if (req.cookies.rv) {
+    if (req.signedCookies.rv) {
       const session = await Session.findOne({
-        token: hash(req.cookies.rv),
+        token: hash(req.signedCookies.rv),
         expires: { $gt: new Date() },
       }).populate("user");
       if (session) {
@@ -104,6 +104,14 @@ const date = z
     "Invalid date",
   );
 const slot = z.enum(["Lunch", "Evening"]);
+const today = () =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.VENUE_TIMEZONE || "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+today();
 function scope(user: any) {
   if (user.role === "Super Admin") return {};
   if (user.role === "Customer") return { customer: user._id };
@@ -161,6 +169,7 @@ async function login(req: any, res: any, user: any) {
     expires: new Date(Date.now() + 86400000),
   });
   res.cookie("rv", raw, {
+    signed: true,
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
@@ -179,6 +188,7 @@ async function login(req: any, res: any, user: any) {
     },
   });
 }
+const dummyHash = await bcrypt.hash(randomBytes(32).toString("hex"), 12);
 const loginLimit = rateLimit({ windowMs: 900000, limit: 15 });
 app.post("/api/auth/register", loginLimit, async (req, res) => {
   const b = credentials
@@ -196,8 +206,8 @@ app.post("/api/auth/register", loginLimit, async (req, res) => {
 app.post("/api/auth/login", loginLimit, async (req, res) => {
   const b = credentials.parse(req.body);
   const u = await User.findOne({ email: b.email }).select("+password");
-  if (!u || !(await bcrypt.compare(b.password, u.password)))
-    throw fail("Invalid email or password", 401);
+  const valid = await bcrypt.compare(b.password, u?.password || dummyHash);
+  if (!u || !valid) throw fail("Invalid email or password", 401);
   await login(req, res, u);
 });
 app.post("/api/auth/logout", auth, async (req: any, res) => {
@@ -211,6 +221,10 @@ app.get("/api/venues", async (req, res) => {
       search: z.string().max(100).default(""),
       guests: z.coerce.number().int().min(0).default(0),
       city: z.string().max(100).optional(),
+      minPrice: z.coerce.number().int().min(0).optional(),
+      maxPrice: z.coerce.number().int().min(0).optional(),
+      event: z.enum(["Barat", "Walima", "Mehndi", "Nikah"]).optional(),
+      facility: z.string().max(100).optional(),
       outdoor: z.enum(["true", "false"]).optional(),
     })
     .parse(req.query);
@@ -221,6 +235,16 @@ app.get("/api/venues", async (req, res) => {
       $options: "i",
     };
   if (q.city) filter.city = q.city;
+  if (q.minPrice != null || q.maxPrice != null) {
+    if (q.minPrice != null && q.maxPrice != null && q.minPrice > q.maxPrice)
+      throw fail("Minimum rental exceeds maximum");
+    filter.rental = {
+      ...(q.minPrice != null ? { $gte: q.minPrice } : {}),
+      ...(q.maxPrice != null ? { $lte: q.maxPrice } : {}),
+    };
+  }
+  if (q.event) filter.eventTypes = q.event;
+  if (q.facility) filter.amenities = q.facility;
   if (q.outdoor) filter.outdoor = q.outdoor === "true";
   res.json({ data: await Venue.find(filter).sort({ name: 1 }).limit(100) });
 });
@@ -287,8 +311,9 @@ async function estimate(b: any) {
     Package.findOne({ _id: b.package, archived: false }),
   ]);
   if (!v || !p) throw fail("Collection or palace unavailable");
-  if (b.date < new Date().toISOString().slice(0, 10))
-    throw fail("Choose a future date");
+  if (!v.eventTypes.includes(b.event))
+    throw fail("This occasion is not available at this venue");
+  if (b.date < today()) throw fail("Choose a future date");
   const services = await Service.find({
     _id: { $in: b.addons },
     archived: false,
@@ -502,15 +527,13 @@ app.post(
     }
     if (b.status === "Cancelled" || input.amount > b.snapshot.total - b.paid!)
       throw fail("Payment exceeds balance or booking is cancelled");
-    res
-      .status(201)
-      .json({
-        data: await Payment.create({
-          ...input,
-          booking: b._id,
-          customer: req.user._id,
-        }),
-      });
+    res.status(201).json({
+      data: await Payment.create({
+        ...input,
+        booking: b._id,
+        customer: req.user._id,
+      }),
+    });
   },
 );
 app.patch("/api/bookings/:id/reschedule", admins, async (req: any, res) => {
@@ -518,8 +541,7 @@ app.patch("/api/bookings/:id/reschedule", admins, async (req: any, res) => {
   if (!["Pending", "Awaiting Advance", "Confirmed"].includes(b.status!))
     throw fail("This booking cannot be rescheduled");
   const input = z.object({ date, slot }).parse(req.body);
-  if (input.date < new Date().toISOString().slice(0, 10))
-    throw fail("Choose a future date");
+  if (input.date < today()) throw fail("Choose a future date");
   await mongoose.connection.transaction(async (session) => {
     const updated = await Booking.updateOne(
       { _id: b._id, date: b.date, slot: b.slot, status: b.status },
@@ -732,6 +754,95 @@ app.get("/api/ledger", auth, async (req: any, res) => {
     data: await Ledger.find(filter).sort({ createdAt: -1 }).limit(200),
   });
 });
+app.post("/api/ledger/:id/reverse", finance, async (req: any, res) => {
+  const input = z
+    .object({ reference: z.string().min(3).max(200), key: z.string().uuid() })
+    .parse(req.body);
+  await mongoose.connection.transaction(async (session) => {
+    const original = await Ledger.findById(id.parse(req.params.id)).session(
+      session,
+    );
+    if (
+      !original ||
+      !["Payment", "Refund", "Supplier Payment"].includes(original.type!)
+    )
+      throw fail("This entry cannot be reversed");
+    const key = "reversal:" + original._id;
+    const prior = await Ledger.findOne({ key }).session(session);
+    if (prior) {
+      if (prior.reference !== input.reference)
+        throw fail("Reversal already recorded with a different reference", 409);
+      return;
+    }
+    const amount = -original.amount!;
+    if (original.booking) {
+      const filter: any = { _id: original.booking };
+      if (amount < 0) filter.paid = { $gte: -amount };
+      else
+        filter.$expr = {
+          $lte: [{ $add: ["$paid", amount] }, "$snapshot.total"],
+        };
+      if (
+        !(await Booking.findOneAndUpdate(
+          filter,
+          { $inc: { paid: amount } },
+          { session },
+        ))
+      )
+        throw fail("Reversal would invalidate the booking balance");
+      if (original.type === "Payment")
+        await Payment.updateOne(
+          { key: { $exists: true }, _id: original.key?.split(":")[1] },
+          { $set: { status: "Reversed" } },
+          { session },
+        );
+    }
+    await Ledger.create(
+      [
+        {
+          booking: original.booking,
+          amount,
+          type: original.type + " Reversal",
+          key,
+          reference: input.reference,
+          actor: req.user._id,
+        },
+      ],
+      { session },
+    );
+    await audit(req, "ledger.reverse", String(original._id), session);
+  });
+  res.json({ data: true });
+});
+app.post("/api/expenses/:id/reverse", finance, async (req: any, res) => {
+  const input = z
+    .object({ reference: z.string().min(3).max(200) })
+    .parse(req.body);
+  await mongoose.connection.transaction(async (session) => {
+    const original = await Expense.findById(id.parse(req.params.id)).session(
+      session,
+    );
+    if (!original || original.amount! <= 0)
+      throw fail("Expense cannot be reversed");
+    const key = "expense-reversal:" + original._id;
+    const prior = await Expense.findOne({ key }).session(session);
+    if (prior) return;
+    await Expense.create(
+      [
+        {
+          amount: -original.amount!,
+          category: original.category,
+          description: "Reversal: " + input.reference,
+          key,
+          actor: req.user._id,
+        },
+      ],
+      { session },
+    );
+    await audit(req, "expense.reverse", String(original._id), session);
+  });
+  res.json({ data: true });
+});
 app.get("/api/bookings/:id/invoice", auth, async (req: any, res) => {
   const b = await ownedBooking(req);
   if (!["Customer", "Super Admin"].includes(req.user.role))
@@ -824,13 +935,10 @@ app.post("/api/consultations", roles("Customer"), async (req: any, res) => {
       notes: z.string().max(1000),
     })
     .parse(req.body);
-  if (b.date < new Date().toISOString().slice(0, 10))
-    throw fail("Choose a future date");
-  res
-    .status(201)
-    .json({
-      data: await Consultation.create({ ...b, customer: req.user._id }),
-    });
+  if (b.date < today()) throw fail("Choose a future date");
+  res.status(201).json({
+    data: await Consultation.create({ ...b, customer: req.user._id }),
+  });
 });
 app.get("/api/consultations", auth, async (req: any, res) => {
   if (!["Customer", "Super Admin"].includes(req.user.role))
@@ -912,6 +1020,22 @@ app.patch("/api/tasks/:id", auth, async (req: any, res) => {
   if (!result) throw fail("Task not found", 404);
   res.json({ data: true });
 });
+app.get(
+  "/api/team-members",
+  roles("Super Admin", "Branch Admin", "Hall Manager"),
+  async (req: any, res) =>
+    res.json({
+      data: await User.find({
+        role: { $in: ["Hall Manager", "Staff"] },
+        ...(req.user.role === "Super Admin"
+          ? {}
+          : { venues: { $in: req.user.venues } }),
+      })
+        .select("name role venues")
+        .sort({ name: 1 })
+        .limit(100),
+    }),
+);
 app.get("/api/admin/users", finance, async (_req, res) =>
   res.json({
     data: await User.find()
@@ -940,12 +1064,19 @@ app.patch("/api/admin/users/:id", finance, async (req: any, res) => {
 const venueInput = z.object({
   name: z.string().min(3).max(100),
   city: z.string().min(2).max(100),
+  address: z.string().max(300).default(""),
+  parkingCapacity: z.number().int().min(0).max(10000).default(0),
+  floorPlan: z.string().max(1000).default(""),
+  demo: z.boolean().default(true),
   capacity: z.number().int().min(1).max(5000),
   rental: z.number().int().nonnegative().max(1000000000),
   outdoor: z.boolean(),
   description: z.string().min(10).max(3000),
   amenities: z.array(z.string().max(100)).max(30),
-  image: z.url().refine((s) => s.startsWith("https://")),
+  image: z.union([
+    z.url().refine((s) => s.startsWith("https://")),
+    z.string().regex(new RegExp("^/(api/)?media/[a-zA-Z0-9._-]+$")),
+  ]),
   taxBps: z.number().int().min(0).max(10000),
   archived: z.boolean().default(false),
 });
@@ -1029,15 +1160,13 @@ app.post("/api/expenses", finance, async (req: any, res) => {
       key: z.string().uuid(),
     })
     .parse(req.body);
-  res
-    .status(201)
-    .json({
-      data: await Expense.findOneAndUpdate(
-        { key: b.key },
-        { $setOnInsert: { ...b, actor: req.user._id } },
-        { upsert: true, new: true },
-      ),
-    });
+  res.status(201).json({
+    data: await Expense.findOneAndUpdate(
+      { key: b.key },
+      { $setOnInsert: { ...b, actor: req.user._id } },
+      { upsert: true, new: true },
+    ),
+  });
 });
 app.get("/api/audit", finance, async (_req, res) =>
   res.json({ data: await Audit.find().sort({ createdAt: -1 }).limit(100) }),
@@ -1061,11 +1190,17 @@ app.get("/api/reports", finance, async (req, res) => {
     }),
   ]);
   const collections = entries
-      .filter((e) => e.type === "Payment" || e.type === "Refund")
+      .filter((e) =>
+        ["Payment", "Refund", "Payment Reversal", "Refund Reversal"].includes(
+          e.type!,
+        ),
+      )
       .reduce((n, e) => n + e.amount!, 0),
     costs = expenses.reduce((n, e) => n + e.amount!, 0);
   const supplierOutflow = -entries
-    .filter((e) => e.type === "Supplier Payment")
+    .filter((e) =>
+      ["Supplier Payment", "Supplier Payment Reversal"].includes(e.type!),
+    )
     .reduce((n, e) => n + e.amount!, 0);
   res.json({
     data: {
@@ -1104,23 +1239,23 @@ app.use((error: any, _req: any, res: any, _next: any) => {
   const status =
     error instanceof z.ZodError
       ? 400
-      : error.code === 11000
-        ? 409
-        : error.status || 500;
-  res
-    .status(status)
-    .json({
-      error: {
-        message:
-          status === 500
-            ? "Service unavailable. Please retry."
-            : error.code === 11000
-              ? "This slot or record is already reserved"
-              : error instanceof z.ZodError
-                ? error.issues.map((i: any) => i.message).join("; ")
-                : error.message,
-      },
-    });
+      : error.code === "LIMIT_FILE_SIZE"
+        ? 413
+        : error.code === 11000
+          ? 409
+          : error.status || 500;
+  res.status(status).json({
+    error: {
+      message:
+        status === 500
+          ? "Service unavailable. Please retry."
+          : error.code === 11000
+            ? "This slot or record is already reserved"
+            : error instanceof z.ZodError
+              ? error.issues.map((i: any) => i.message).join("; ")
+              : error.message,
+    },
+  });
 });
 await mongoose.connect(env.MONGODB_URI);
 await Promise.all(

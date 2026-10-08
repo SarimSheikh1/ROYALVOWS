@@ -390,15 +390,13 @@ export function operations(app: any, auth: any, roles: any) {
         !req.user.venues.some((v: any) => String(v) === String(booking.venue))
       )
         throw fail("Access denied", 403);
-      res
-        .status(201)
-        .json({
-          data: await OperationReport.create({
-            ...input,
-            venue: booking.venue,
-            actor: req.user._id,
-          }),
-        });
+      res.status(201).json({
+        data: await OperationReport.create({
+          ...input,
+          venue: booking.venue,
+          actor: req.user._id,
+        }),
+      });
     },
   );
   app.get("/api/admin/salaries", admin, async (_req: any, res: any) =>
@@ -428,11 +426,9 @@ export function operations(app: any, auth: any, roles: any) {
         throw fail("Idempotency conflict", 409);
       return res.json({ data: prior });
     }
-    res
-      .status(201)
-      .json({
-        data: await SalaryRecord.create({ ...input, actor: req.user._id }),
-      });
+    res.status(201).json({
+      data: await SalaryRecord.create({ ...input, actor: req.user._id }),
+    });
   });
   app.get("/api/gallery", async (req: any, res: any) => {
     const category = req.query.category
@@ -547,16 +543,14 @@ export function operations(app: any, auth: any, roles: any) {
         throw fail("Idempotency conflict", 409);
       return res.json({ data: existing });
     }
-    res
-      .status(201)
-      .json({
-        data: await Ledger.create({
-          type: "Supplier Payment",
-          amount: -b.amount,
-          reference: b.supplier + ":" + b.reference,
-          key,
-          actor: req.user._id,
-        }),
-      });
+    res.status(201).json({
+      data: await Ledger.create({
+        type: "Supplier Payment",
+        amount: -b.amount,
+        reference: b.supplier + ":" + b.reference,
+        key,
+        actor: req.user._id,
+      }),
+    });
   });
 }

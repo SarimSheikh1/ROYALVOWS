@@ -91,7 +91,7 @@ export function VenueCard({ venue: v }: { venue: Row }) {
           alt={"Demo atmosphere for " + v.name}
           loading="lazy"
         />
-        <span>DEMO VENUE</span>
+        <span>{v.demo ? "DEMO VENUE" : "PALACE COLLECTION"}</span>
         <ArrowUpRight />
       </div>
       <small>
@@ -103,3 +103,11 @@ export function VenueCard({ venue: v }: { venue: Row }) {
     </Link>
   );
 }
+
+export const businessDate = (date = new Date()) =>
+  new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Karachi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);

@@ -1,3 +1,5 @@
+import sharp from "sharp";
+import { v2 as cloudinary } from "cloudinary";
 import mongoose, { Schema } from "mongoose";
 import { randomBytes, createHash } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
@@ -189,10 +191,51 @@ export function integrations(app: any, auth: any, roles: any, loginLimit: any) {
         !["image/jpeg", "image/png", "image/webp"].includes(type.mime)
       )
         throw fail("Only verified JPEG, PNG and WebP images are allowed");
+      const metadata = await sharp(req.file.buffer, {
+        limitInputPixels: 20000000,
+      }).metadata();
+      if (!metadata.width || !metadata.height) throw fail("Invalid image");
+      const cleaned = await sharp(req.file.buffer, {
+        limitInputPixels: 20000000,
+      })
+        .rotate()
+        .resize({
+          width: 2400,
+          height: 2400,
+          fit: "inside",
+          withoutEnlargement: true,
+        })
+        .webp({ quality: 85 })
+        .toBuffer();
+      if (process.env.CLOUDINARY_URL) {
+        const uploaded: any = await new Promise((resolve, reject) => {
+          cloudinary.uploader
+            .upload_stream(
+              { resource_type: "image", folder: "royalvows/gallery" },
+              (error, result) => (error ? reject(error) : resolve(result)),
+            )
+            .end(cleaned);
+        });
+        if (!uploaded?.secure_url)
+          throw fail("Storage provider did not confirm upload", 503);
+        await Audit.create({
+          actor: req.user._id,
+          action: "media.upload",
+          target: uploaded.public_id,
+        });
+        return res
+          .status(201)
+          .json({
+            data: {
+              url: uploaded.secure_url,
+              storage: "Configured Cloudinary storage",
+            },
+          });
+      }
       const dir = path.resolve("uploads");
       await mkdir(dir, { recursive: true });
-      const filename = randomBytes(24).toString("hex") + "." + type.ext;
-      await writeFile(path.join(dir, filename), req.file.buffer, {
+      const filename = randomBytes(24).toString("hex") + ".webp";
+      await writeFile(path.join(dir, filename), cleaned, {
         flag: "wx",
       });
       await Audit.create({
@@ -200,14 +243,12 @@ export function integrations(app: any, auth: any, roles: any, loginLimit: any) {
         action: "media.upload",
         target: filename,
       });
-      res
-        .status(201)
-        .json({
-          data: {
-            url: "/api/media/" + filename,
-            storage: "Local development storage",
-          },
-        });
+      res.status(201).json({
+        data: {
+          url: "/api/media/" + filename,
+          storage: "Local development storage",
+        },
+      });
     },
   );
   app.get("/api/media/:filename", async (req: any, res: any) => {

@@ -1,6 +1,6 @@
 import { SEO } from "./seo";
-import { ResetPassword, VerifyEmail } from "./extras";
-import React, { useState } from "react";
+
+import React, { useState, lazy, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Routes, Route, Link } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,7 +17,18 @@ import {
   Editorial,
   content,
 } from "./public";
-import { Login, Portal } from "./portal";
+const Login = lazy(() =>
+  import("./portal").then((m) => ({ default: m.Login })),
+);
+const Portal = lazy(() =>
+  import("./portal").then((m) => ({ default: m.Portal })),
+);
+const ResetPassword = lazy(() =>
+  import("./extras").then((m) => ({ default: m.ResetPassword })),
+);
+const VerifyEmail = lazy(() =>
+  import("./extras").then((m) => ({ default: m.VerifyEmail })),
+);
 import "./styles.css";
 function Header() {
   const [open, setOpen] = useState(false);
@@ -79,7 +90,7 @@ function Footer() {
         <Link to="/terms">Terms</Link>
       </div>
       <div className="fine">
-        &middot; {new Date().getFullYear()} RoyalVows &middot; Demo palace
+        &copy; {new Date().getFullYear()} RoyalVows &middot; Demo palace
         collection &middot; Contact details await configuration.
       </div>
     </footer>
@@ -94,31 +105,39 @@ function App() {
       </a>
       <Header />
       <div id="content">
-        <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/palaces" element={<Palaces />} />
-          <Route path="/palaces/:id" element={<Palace />} />
-          <Route path="/collections" element={<Collections />} />
-          <Route path="/planning" element={<Planning />} />
-          <Route path="/verify" element={<VerifyEmail />} />
-          <Route path="/reset" element={<ResetPassword />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/portal" element={<Portal />} />
-          <Route path="/contact" element={<Contact />} />
-          <Route path="/gallery" element={<Gallery />} />
-          {Object.keys(content).map((k) => (
-            <Route key={k} path={"/" + k} element={<Editorial kind={k} />} />
-          ))}
-          <Route
-            path="*"
-            element={
-              <main className="section page">
-                <h1>Page not found.</h1>
-                <Link to="/">Return home</Link>
-              </main>
-            }
-          />
-        </Routes>
+        <Suspense
+          fallback={
+            <main className="section page" role="status">
+              Preparing your celebration...
+            </main>
+          }
+        >
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/palaces" element={<Palaces />} />
+            <Route path="/palaces/:id" element={<Palace />} />
+            <Route path="/collections" element={<Collections />} />
+            <Route path="/planning" element={<Planning />} />
+            <Route path="/verify" element={<VerifyEmail />} />
+            <Route path="/reset" element={<ResetPassword />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/portal" element={<Portal />} />
+            <Route path="/contact" element={<Contact />} />
+            <Route path="/gallery" element={<Gallery />} />
+            {Object.keys(content).map((k) => (
+              <Route key={k} path={"/" + k} element={<Editorial kind={k} />} />
+            ))}
+            <Route
+              path="*"
+              element={
+                <main className="section page">
+                  <h1>Page not found.</h1>
+                  <Link to="/">Return home</Link>
+                </main>
+              }
+            />
+          </Routes>
+        </Suspense>
       </div>
       <Footer />
     </BrowserRouter>
