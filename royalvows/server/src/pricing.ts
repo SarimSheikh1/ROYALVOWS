@@ -1,2 +1,59 @@
-export function price(venue:{rental:number;capacity:number;taxBps:number},pack:{perHead:number;decor:number;minGuests:number;maxGuests:number;name:string},guests:number){if(!Number.isInteger(guests)||guests<pack.minGuests||guests>Math.min(venue.capacity,pack.maxGuests))throw new Error('Guest count outside venue or collection limits');const catering=guests*pack.perHead;const subtotal=venue.rental+catering+pack.decor;const tax=Math.round(subtotal*venue.taxBps/10000);if(!Number.isSafeInteger(subtotal+tax))throw new Error('Invalid estimate');return {collection:pack.name,rental:venue.rental,catering,decor:pack.decor,discount:0,tax,total:subtotal+tax,guests,perHead:pack.perHead};}
-export const transitions:Record<string,string[]>={Pending:['Awaiting Advance','Cancelled'],'Awaiting Advance':['Confirmed','Cancelled'],Confirmed:['In Progress','Cancelled'],'In Progress':['Completed'],Completed:[],Cancelled:[]};
+export function price(
+  venue: { rental: number; capacity: number; taxBps: number },
+  pack: {
+    perHead: number;
+    decor: number;
+    minGuests: number;
+    maxGuests: number;
+    name: string;
+  },
+  guests: number,
+  extras: { addons?: number; discount?: number; menuPerHead?: number } = {},
+) {
+  if (
+    !Number.isInteger(guests) ||
+    guests < pack.minGuests ||
+    guests > Math.min(venue.capacity, pack.maxGuests)
+  )
+    throw new Error("Guest count outside venue or collection limits");
+  const rate = extras.menuPerHead ?? pack.perHead,
+    addons = extras.addons || 0,
+    discount = extras.discount || 0;
+  for (const n of [
+    venue.rental,
+    pack.decor,
+    rate,
+    addons,
+    discount,
+    venue.taxBps,
+  ])
+    if (!Number.isSafeInteger(n) || n < 0)
+      throw new Error("Invalid catalog rate");
+  if (venue.taxBps > 10000) throw new Error("Invalid tax rate");
+  const catering = guests * rate;
+  const subtotal = venue.rental + catering + pack.decor + addons;
+  if (discount > subtotal) throw new Error("Discount exceeds subtotal");
+  const tax = Math.round(((subtotal - discount) * venue.taxBps) / 10000);
+  if (!Number.isSafeInteger(subtotal - discount + tax))
+    throw new Error("Invalid estimate");
+  return {
+    collection: pack.name,
+    rental: venue.rental,
+    catering,
+    decor: pack.decor,
+    addons,
+    discount,
+    tax,
+    total: subtotal - discount + tax,
+    guests,
+    perHead: rate,
+  };
+}
+export const transitions: Record<string, string[]> = {
+  Pending: ["Awaiting Advance", "Cancelled"],
+  "Awaiting Advance": ["Confirmed", "Cancelled"],
+  Confirmed: ["In Progress", "Cancelled"],
+  "In Progress": ["Completed"],
+  Completed: [],
+  Cancelled: [],
+};

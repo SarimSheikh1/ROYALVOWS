@@ -1,1 +1,12 @@
-import mongoose from 'mongoose';import {reminders} from './integrations.js';if(!process.env.MONGODB_URI)throw new Error('Configure MONGODB_URI');await mongoose.connect(process.env.MONGODB_URI);await reminders();setInterval(()=>reminders().catch(()=>console.error('Reminder run failed; will retry next interval')),60000);
+import mongoose from "mongoose";
+import { reminders } from "./integrations.js";
+if (!process.env.MONGODB_URI) throw new Error("Configure MONGODB_URI");
+await mongoose.connect(process.env.MONGODB_URI);
+await reminders();
+setInterval(
+  () =>
+    reminders().catch(() =>
+      console.error("Reminder run failed; will retry next interval"),
+    ),
+  60000,
+);
