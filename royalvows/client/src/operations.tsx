@@ -1,3 +1,4 @@
+import { EmployeeRecords } from "./hr";
 import { UploadMedia } from "./extras";
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -82,6 +83,11 @@ const config: Record<string, { path: string; fields: Field[] }> = {
     fields: [
       { key: "name", label: "Equipment name" },
       { key: "threshold", label: "Low-stock threshold", type: "number" },
+      {
+        key: "consumable",
+        label: "Consumable (used at event completion)",
+        type: "boolean",
+      },
       { key: "venue", label: "Palace", type: "venue" },
       { key: "archived", label: "Archive item", type: "boolean" },
     ],
@@ -339,6 +345,7 @@ export function Operations({ kind }: { kind: string }) {
     <>
       <State query={q} />
       {kind === "Gallery" && <UploadMedia />}
+      {kind === "Employees" && <EmployeeRecords />}
       {cfg && <ResourceEditor kind={kind} records={q.data || []} />}
       <div className="records">
         {q.data?.map((r) => (
@@ -391,7 +398,7 @@ export function Operations({ kind }: { kind: string }) {
           </article>
         ))}
       </div>
-      {["Inventory", "Suppliers", "Employees"].includes(kind) && (
+      {["Inventory", "Suppliers"].includes(kind) && (
         <section className="panel">
           <h2>
             {kind === "Inventory"

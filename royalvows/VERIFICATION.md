@@ -8,7 +8,7 @@ Verified on 8 October 2026 (Asia/Karachi) in the Windows workspace.
 | npm run typecheck             | Client and server passed                                                                                                   |
 | npm run build                 | Client production assets and compiled Express server passed; workspaces/reset screens are lazy-loaded                      |
 | npm test                      | 6 pricing/rounding/discount/capacity/state tests passed                                                                    |
-| npm run test:integration      | 18 checks passed against a real isolated MongoDB 8.0.15 replica set                                                        |
+| npm run test:integration      | 21 checks passed against a real isolated MongoDB 8.0.15 replica set                                                        |
 | npm run test:browser          | 8 Chromium checks passed against a real isolated MongoDB/API/Vite stack                                                    |
 | npm audit --audit-level=high  | 0 vulnerabilities                                                                                                          |
 | docker compose config --quiet | Passed                                                                                                                     |
@@ -23,3 +23,5 @@ Browser checks cover homepage rendering, customer booking and refresh persistenc
 The build emits upstream Zod/Rollup annotation warnings while completing successfully. Poppler emitted optional system-font mapping warnings; the actual invoice rendered cleanly. No live SMTP, Cloudinary, SMS, WhatsApp or merchant gateway was called or claimed verified. SITE_URL is unconfigured, so sitemap generation deliberately skipped instead of inventing a domain. Docker Desktop's daemon was unavailable; Compose syntax was checked, while transaction/API testing used real temporary replica-set processes. GitHub CI is configured; local results above are the evidence for this delivery.
 
 Source ZIP excludes .env, node_modules, upload files, runtime databases/tools, screenshots/test outputs and caches. See FEATURE_STATUS.md for remaining scope limits and configuration needs.
+
+Continuation checks: quoted CSV tests 3/3; integration 21/21 including booking pagination, planner concurrency/cancellation history and event allocation concurrency/retries/cancellation release; browser 8/8; production build, lint and type checks executed successfully. Owner login API returned 200 and Super Admin.

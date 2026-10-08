@@ -109,6 +109,7 @@ export const Booking = mongoose.model(
       manager: ref,
       checklist: [{ title: String, done: Boolean }],
       guestList: [{ name: String, table: String }],
+      tables: [{ name: String, seats: Number, x: Number, y: Number }],
       timeline: [{ time: String, title: String }],
     },
     opts,
@@ -195,10 +196,25 @@ const cs = new Schema(
     slot: String,
     status: { type: String, default: "Pending" },
     notes: String,
+    planner: { type: Schema.Types.ObjectId, ref: "User" },
+    history: [
+      {
+        action: String,
+        note: String,
+        actor: ref,
+        time: { type: Date, default: Date.now },
+      },
+    ],
   },
   opts,
 );
-cs.index({ date: 1, slot: 1 }, { unique: true });
+cs.index(
+  { planner: 1, date: 1, slot: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ["Pending", "Confirmed"] } },
+  },
+);
 export const Consultation = mongoose.model("Consultation", cs);
 export const Task = mongoose.model(
   "Task",

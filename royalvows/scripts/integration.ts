@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import {
   User,
+  Booking,
   Venue,
   Package,
   Payment,
@@ -189,6 +190,7 @@ try {
   const admin = {
     cookie: ar.headers.get("set-cookie")!.split(";")[0],
     csrf: aj.data.csrf,
+    id: aj.data.user._id,
   };
   const paymentBody = {
     amount: 1000000,
@@ -521,6 +523,195 @@ try {
       );
       assert.equal(await Reservation.countDocuments(), 0);
       assert.equal((await request("/bookings", "POST", body, b)).status, 201);
+    },
+  );
+  await check(
+    "booking pages and date filters include records beyond the first 50",
+    async () => {
+      const fixtures = await Booking.insertMany(
+        Array.from({ length: 55 }, (_, i) => ({
+          customer: a.id,
+          venue: venue._id,
+          date: "2028-01-15",
+          slot: "Lunch",
+          event: "Nikah",
+          status: "Pending",
+          snapshot: { venueName: "Test" },
+        })),
+      );
+      const page = await (
+        await request(
+          "/bookings?from=2028-01-01&to=2028-01-31&page=2",
+          "GET",
+          undefined,
+          a,
+        )
+      ).json();
+      assert.equal(page.data.length, 5);
+      assert.equal(page.pagination.total, 55);
+      assert.equal(page.pagination.pages, 2);
+      const denied = await (
+        await request(
+          "/bookings?from=2028-01-01&to=2028-01-31",
+          "GET",
+          undefined,
+          b,
+        )
+      ).json();
+      assert.equal(denied.pagination.total, 0);
+      assert.equal(
+        (
+          await request(
+            "/bookings?from=2028-02-01&to=2028-01-01",
+            "GET",
+            undefined,
+            a,
+          )
+        ).status,
+        400,
+      );
+      await Booking.deleteMany({ _id: { $in: fixtures.map((f) => f._id) } });
+    },
+  );
+  await check(
+    "planner slots prevent conflicts and cancellation retains history",
+    async () => {
+      const input = {
+        date: "2027-02-10",
+        slot: "10:00",
+        planner: admin.id,
+        notes: "Venue styling consultation",
+      };
+      const rr = await Promise.all([
+        request("/consultations", "POST", input, a),
+        request("/consultations", "POST", input, b),
+      ]);
+      assert.deepEqual(rr.map((r) => r.status).sort(), [201, 409]);
+      const winner = rr.findIndex((r) => r.status === 201),
+        owner = winner === 0 ? a : b,
+        other = winner === 0 ? b : a;
+      const cid = (await rr[winner].json()).data._id;
+      assert.equal(
+        (
+          await request(
+            "/consultations/" + cid,
+            "PATCH",
+            { status: "Cancelled" },
+            other,
+          )
+        ).status,
+        404,
+      );
+      assert.equal(
+        (
+          await request(
+            "/consultations/" + cid,
+            "PATCH",
+            { status: "Confirmed", note: "Planning requirements recorded" },
+            admin,
+          )
+        ).status,
+        200,
+      );
+      assert.equal(
+        (
+          await request(
+            "/consultations/" + cid,
+            "PATCH",
+            { status: "Cancelled" },
+            owner,
+          )
+        ).status,
+        200,
+      );
+      const history = (
+        await (await request("/consultations", "GET", undefined, owner)).json()
+      ).data.find((c: any) => c._id === cid);
+      assert.equal(history.status, "Cancelled");
+      assert.equal(history.history.length, 3);
+      assert.equal(
+        (await request("/consultations", "POST", input, owner)).status,
+        201,
+      );
+    },
+  );
+  await check(
+    "event allocations serialize stock, retry safely, and release on cancellation",
+    async () => {
+      const active = (
+        await (await request("/bookings", "GET", undefined, b)).json()
+      ).data.find((x: any) => x.status !== "Cancelled");
+      const item = (
+        await (
+          await request("/admin/inventory", "GET", undefined, admin)
+        ).json()
+      ).data[0];
+      const input = {
+        booking: active._id,
+        item: item._id,
+        quantity: 2,
+        key: crypto.randomUUID(),
+      };
+      assert.equal(
+        (await request("/allocations", "POST", input, a)).status,
+        403,
+      );
+      const rr = await Promise.all([
+        request("/allocations", "POST", input, admin),
+        request(
+          "/allocations",
+          "POST",
+          { ...input, key: crypto.randomUUID() },
+          admin,
+        ),
+      ]);
+      assert.deepEqual(rr.map((r) => r.status).sort(), [201, 409]);
+      const allocation = (await rr.find((r) => r.status === 201)!.json()).data;
+      const retry = { ...input, key: allocation.key };
+      assert.equal(
+        (await request("/allocations", "POST", retry, admin)).status,
+        201,
+      );
+      let stock = (
+        await (
+          await request("/admin/inventory", "GET", undefined, admin)
+        ).json()
+      ).data[0];
+      assert.equal(stock.quantity, 0);
+      assert.equal(
+        (
+          await request(
+            "/bookings/" + active._id + "/status",
+            "PATCH",
+            { status: "Cancelled" },
+            b,
+          )
+        ).status,
+        200,
+      );
+      stock = (
+        await (
+          await request("/admin/inventory", "GET", undefined, admin)
+        ).json()
+      ).data[0];
+      assert.equal(stock.quantity, 2);
+      assert.equal(
+        (
+          await request(
+            "/allocations/" + allocation._id + "/return",
+            "POST",
+            {},
+            admin,
+          )
+        ).status,
+        200,
+      );
+      stock = (
+        await (
+          await request("/admin/inventory", "GET", undefined, admin)
+        ).json()
+      ).data[0];
+      assert.equal(stock.quantity, 2);
     },
   );
   await check("logout invalidates server session", async () => {

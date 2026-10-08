@@ -1283,3 +1283,50 @@ textarea {
   font-family: Georgia, serif;
   font-size: 22px;
 }
+
+.seating-room {
+  position: relative;
+  height: 460px;
+  border: 1px solid var(--gold);
+  background: var(--pearl);
+  margin: 24px 0;
+  overflow: hidden;
+}
+.seating-stage {
+  position: absolute;
+  bottom: 10px;
+  left: 35%;
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+.seating-table {
+  position: absolute;
+  width: 90px;
+  min-height: 60px;
+  border-radius: 45%;
+  background: #f8f3e8;
+  border: 1px solid #a78042;
+  font-size: 12px;
+  padding: 8px;
+  cursor: grab;
+}
+.seating-table small {
+  display: block;
+}
+.seating-guests {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.seating-guests span {
+  padding: 8px;
+  border: 1px solid #c9a76a;
+  cursor: grab;
+}
+.seating .record-actions {
+  flex-wrap: wrap;
+  padding: 12px 0;
+}
+.seating .record-actions label {
+  max-width: 180px;
+}

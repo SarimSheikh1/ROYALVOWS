@@ -1,6 +1,8 @@
+import { Seating } from "./seating";
+import { Allocations, Consultations } from "./event-tools";
 import { businessDate } from "./core";
 import { ReviewSubmission } from "./reviews";
-import { TaskBoard, TeamReports } from "./team";
+import { TaskBoard, TeamReports, EventTimeline } from "./team";
 import { SavedPalaces } from "./saved";
 import { PasswordHelp, GuestTools, Reschedule, Maintenance } from "./extras";
 import { EventCalendar } from "./calendar";
@@ -13,6 +15,8 @@ import { ArrowUpRight, LayoutDashboard, Heart, LogOut } from "lucide-react";
 import {
   api,
   useData,
+  useAllBookings,
+  useBookingPage,
   useUser,
   State,
   Monogram,
@@ -73,11 +77,14 @@ export function Login() {
             <input
               aria-label="Password"
               type="password"
-              minLength={12}
-              {...field("password", { required: true, minLength: 12 })}
+              minLength={register ? 12 : 1}
+              {...field("password", {
+                required: true,
+                minLength: register ? 12 : 1,
+              })}
               autoComplete={register ? "new-password" : "current-password"}
             />
-            <small>At least 12 characters.</small>
+            {register && <small>At least 12 characters.</small>}
           </label>
           {error && (
             <p className="error" role="alert">
@@ -170,13 +177,22 @@ export function Portal() {
         "Notifications",
       ]
     : staff
-      ? ["Overview", "Tasks", "Notifications"]
+      ? [
+          "Overview",
+          "Tasks",
+          "Operations reports",
+          "Event timeline",
+          "Notifications",
+        ]
       : [
           "Overview",
           "Bookings",
           "Calendar",
           "Tasks",
           "Operations reports",
+          "Event timeline",
+          "Event equipment",
+          "Consultations",
           ...(admin
             ? [
                 "Venues",
@@ -186,7 +202,6 @@ export function Portal() {
                 "Ledger",
                 "Expenses",
                 "Reports",
-                "Consultations",
                 "Inquiries",
                 "Inventory",
                 "Suppliers",
@@ -257,12 +272,13 @@ export function Portal() {
   );
 }
 function DashboardContent({ tab, user }: { tab: string; user: Row }) {
-  const bookings = useData("/bookings");
+  const bookings = useAllBookings("/bookings");
+  const [bookingPage, setBookingPage] = useState(1);
+  const bookingRows = useBookingPage("/bookings?page=" + bookingPage);
   const [selected, setSelected] = useState(""),
     [message, setMessage] = useState(""),
     [input, setInput] = useState(""),
-    [method, setMethod] = useState(""),
-    [date, setDate] = useState(businessDate());
+    [method, setMethod] = useState("");
   const customer = user.role === "Customer",
     admin = user.role === "Super Admin";
   const b = bookings.data?.find((b) => b._id === selected);
@@ -373,8 +389,11 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
         </p>
       </>
     );
+  if (tab === "Consultations") return <Consultations customer={customer} />;
+  if (tab === "Event equipment") return <Allocations />;
   if (tab === "Tasks") return <TaskBoard />;
   if (tab === "Operations reports") return <TeamReports />;
+  if (tab === "Event timeline") return <EventTimeline />;
   if (tab === "Calendar")
     return (
       <>
@@ -385,13 +404,32 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
   if (tab === "Bookings")
     return (
       <>
-        <State query={bookings} />
-        {bookings.data?.length === 0 && (
+        <State query={bookingRows} />
+        {bookingRows.data?.data.length === 0 && (
           <p className="notice">No bookings yet.</p>
         )}
-        {bookings.data?.map((b) => (
+        {bookingRows.data?.data.map((b) => (
           <BookingRow key={b._id} b={b} customer={customer} admin={admin} />
         ))}
+        <nav className="record-actions" aria-label="Booking pages">
+          <button
+            disabled={bookingPage <= 1}
+            onClick={() => setBookingPage(bookingPage - 1)}
+          >
+            Previous
+          </button>
+          <span>
+            Page {bookingPage} of{" "}
+            {Math.max(1, bookingRows.data?.pagination.pages || 1)} ?{" "}
+            {bookingRows.data?.pagination.total || 0} bookings
+          </span>
+          <button
+            disabled={bookingPage >= (bookingRows.data?.pagination.pages || 1)}
+            onClick={() => setBookingPage(bookingPage + 1)}
+          >
+            Next
+          </button>
+        </nav>
         {!customer && user.role !== "Staff" && (
           <section className="panel">
             <h2>Create an event task</h2>
@@ -538,50 +576,6 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
           </p>
         </section>
       )}
-      {tab === "Consultations" && customer && (
-        <section className="panel">
-          <h2>Request a private consultation</h2>
-          <label>
-            Date
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </label>
-          <label>
-            Time
-            <select
-              aria-label="Time"
-              value={method}
-              onChange={(e) => setMethod(e.target.value)}
-            >
-              <option value="">Choose time</option>
-              {["10:00", "12:00", "15:00", "17:00"].map((t) => (
-                <option key={t}>{t}</option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Preferences
-            <textarea
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-            />
-          </label>
-          <Action
-            run={() =>
-              api("/consultations", "POST", {
-                date,
-                slot: method,
-                notes: message,
-              })
-            }
-          >
-            Request appointment
-          </Action>
-        </section>
-      )}
       {tab === "Expenses" && (
         <section className="panel">
           <h2>Record an expense</h2>
@@ -653,7 +647,27 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
                 </p>
               )}
             </div>
-            <div className="record-actions">{admin&&((tab==="Ledger"&&["Payment","Refund","Supplier Payment"].includes(r.type))||(tab==="Expenses"&&r.amount>0))&&<Action run={()=>{const reference=prompt("Reason/reference for reversal");if(!reference)return Promise.resolve();return api((tab==="Ledger"?"/ledger/":"/expenses/")+r._id+"/reverse","POST",{reference,key:crypto.randomUUID()});}}>Record reversal</Action>}
+            <div className="record-actions">
+              {admin &&
+                ((tab === "Ledger" &&
+                  ["Payment", "Refund", "Supplier Payment"].includes(r.type)) ||
+                  (tab === "Expenses" && r.amount > 0)) && (
+                  <Action
+                    run={() => {
+                      const reference = prompt("Reason/reference for reversal");
+                      if (!reference) return Promise.resolve();
+                      return api(
+                        (tab === "Ledger" ? "/ledger/" : "/expenses/") +
+                          r._id +
+                          "/reverse",
+                        "POST",
+                        { reference, key: crypto.randomUUID() },
+                      );
+                    }}
+                  >
+                    Record reversal
+                  </Action>
+                )}
               {tab === "Payments" && r.status === "Approved" && (
                 <a
                   href={"/api/payments/" + r._id + "/receipt"}
@@ -681,18 +695,6 @@ function DashboardContent({ tab, user }: { tab: string; user: Row }) {
                   </Action>
                 </>
               )}
-              {tab === "Consultations" &&
-                admin &&
-                ["Confirmed", "Cancelled"].map((status) => (
-                  <Action
-                    key={status}
-                    run={() =>
-                      api("/consultations/" + r._id, "PATCH", { status })
-                    }
-                  >
-                    {status === "Confirmed" ? "Confirm" : "Cancel"}
-                  </Action>
-                ))}
               {tab === "Inquiries" &&
                 admin &&
                 ["Confirmed", "Rejected", "Resolved"].map((status) => (
@@ -882,6 +884,7 @@ function BookingRow({
 function WeddingPlan({ booking: b }: { booking: Row }) {
   const [checklist, setChecklist] = useState<Row[]>(b.checklist || []),
     [guestList, setGuests] = useState<Row[]>(b.guestList || []),
+    [tables, setTables] = useState<Row[]>(b.tables || []),
     [timeline, setTimeline] = useState<Row[]>(b.timeline || []),
     [notes, setNotes] = useState(b.notes || ""),
     [title, setTitle] = useState("");
@@ -963,6 +966,12 @@ function WeddingPlan({ booking: b }: { booking: Row }) {
       >
         Add guest
       </button>
+      <Seating
+        guests={guestList}
+        tables={tables}
+        onGuests={setGuests}
+        onTables={setTables}
+      />
       <h3>Wedding-day timeline</h3>
       {timeline.map((t, i) => (
         <div className="form-grid" key={i}>
@@ -1001,6 +1010,12 @@ function WeddingPlan({ booking: b }: { booking: Row }) {
           api("/bookings/" + b._id + "/plan", "PATCH", {
             checklist: checklist.map(({ title, done }) => ({ title, done })),
             guestList: guestList.map(({ name, table }) => ({ name, table })),
+            tables: tables.map(({ name, seats, x, y }) => ({
+              name,
+              seats,
+              x,
+              y,
+            })),
             timeline: timeline.map(({ time, title }) => ({ time, title })),
             notes,
           })

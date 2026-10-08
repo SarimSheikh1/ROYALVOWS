@@ -1,3 +1,4 @@
+import { listPage } from "./list.js";
 import mongoose, { Schema } from "mongoose";
 import { z } from "zod";
 import {
@@ -17,6 +18,7 @@ const Inventory = mongoose.model(
       name: { type: String, unique: true, required: true },
       quantity: { type: Number, min: 0, default: 0 },
       threshold: { type: Number, min: 0, default: 0 },
+      consumable: { type: Boolean, default: false },
       venue: Schema.Types.ObjectId,
       archived: { type: Boolean, default: false },
     },
@@ -36,6 +38,61 @@ const Movement = mongoose.model(
     options,
   ),
 );
+const Allocation = mongoose.model(
+  "EventAllocation",
+  new Schema(
+    {
+      booking: { type: Schema.Types.ObjectId, ref: "Booking" },
+      item: { type: Schema.Types.ObjectId, ref: "InventoryItem" },
+      venue: Schema.Types.ObjectId,
+      quantity: Number,
+      consumable: Boolean,
+      status: {
+        type: String,
+        enum: ["Active", "Returned", "Consumed"],
+        default: "Active",
+      },
+      key: { type: String, unique: true },
+      actor: Schema.Types.ObjectId,
+    },
+    options,
+  ),
+);
+export async function releaseEventStock(
+  booking: any,
+  cancelled: boolean,
+  actor: any,
+  session: any,
+) {
+  const allocations = await Allocation.find({
+    booking,
+    status: "Active",
+  }).session(session);
+  for (const allocation of allocations) {
+    const returned = cancelled || !allocation.consumable;
+    if (returned)
+      await Inventory.updateOne(
+        { _id: allocation.item },
+        { $inc: { quantity: allocation.quantity } },
+        { session },
+      );
+    await Allocation.updateOne(
+      { _id: allocation._id, status: "Active" },
+      { $set: { status: returned ? "Returned" : "Consumed" } },
+      { session },
+    );
+    await Audit.create(
+      [
+        {
+          actor,
+          action: "allocation." + (returned ? "return" : "consume"),
+          target: String(allocation._id),
+        },
+      ],
+      { session },
+    );
+  }
+}
 const Supplier = mongoose.model(
   "Supplier",
   new Schema(
@@ -199,6 +256,7 @@ export function operations(app: any, auth: any, roles: any) {
       z.object({
         name: z.string().min(2).max(100),
         threshold: amount,
+        consumable: z.boolean().default(false),
         venue: id,
         archived: z.boolean().default(false),
       }),
@@ -253,7 +311,7 @@ export function operations(app: any, auth: any, roles: any) {
   ];
   for (const [path, Model, validator] of configs) {
     app.get("/api/admin/" + path, admin, async (_req: any, res: any) =>
-      res.json({ data: await Model.find().sort({ _id: 1 }).limit(100) }),
+      res.json(await listPage(Model.find().sort({ _id: 1 }), _req)),
     );
     app.post("/api/admin/" + path, admin, async (req: any, res: any) => {
       const r = await Model.create(validator.parse(req.body));
@@ -283,6 +341,134 @@ export function operations(app: any, auth: any, roles: any) {
       },
     );
   }
+  const team = roles("Super Admin", "Branch Admin", "Hall Manager");
+  const venueScope = (req: any) =>
+    req.user.role === "Super Admin" ? {} : { venue: { $in: req.user.venues } };
+  app.get("/api/event-inventory", team, async (req: any, res: any) =>
+    res.json({
+      data: await Inventory.find({
+        ...venueScope(req),
+        archived: { $ne: true },
+      }).sort({ name: 1, _id: 1 }),
+    }),
+  );
+  app.get("/api/allocations", team, async (req: any, res: any) => {
+    const filter: any = venueScope(req);
+    if (req.query.booking) filter.booking = id.parse(req.query.booking);
+    res.json({
+      data: await Allocation.find(filter)
+        .populate("item", "name")
+        .populate("booking", "date slot event status")
+        .sort({ createdAt: -1, _id: -1 }),
+    });
+  });
+  app.post("/api/allocations", team, async (req: any, res: any) => {
+    const input = z
+      .object({
+        booking: id,
+        item: id,
+        quantity: z.number().int().min(1).max(100000),
+        key: z.string().uuid(),
+      })
+      .parse(req.body);
+    let result: any;
+    await mongoose.connection.transaction(async (session) => {
+      const booking = await Booking.findOne({
+        _id: input.booking,
+        ...venueScope(req),
+        status: { $nin: ["Completed", "Cancelled"] },
+      }).session(session);
+      if (!booking) throw fail("Active assigned booking not found", 404);
+      const prior = await Allocation.findOne({ key: input.key }).session(
+        session,
+      );
+      if (prior) {
+        if (
+          String(prior.booking) !== input.booking ||
+          String(prior.item) !== input.item ||
+          prior.quantity !== input.quantity
+        )
+          throw fail("Idempotency conflict", 409);
+        result = prior;
+        return;
+      }
+      // Writing the booking serializes allocation against completion/cancellation.
+      const locked = await Booking.updateOne(
+        { _id: booking._id, status: booking.status },
+        { $set: { updatedAt: new Date() } },
+        { session },
+      );
+      if (!locked.matchedCount) throw fail("Booking changed; refresh", 409);
+      const item = await Inventory.findOneAndUpdate(
+        {
+          _id: input.item,
+          venue: booking.venue,
+          archived: { $ne: true },
+          quantity: { $gte: input.quantity },
+        },
+        { $inc: { quantity: -input.quantity } },
+        { session, new: true },
+      );
+      if (!item)
+        throw fail(
+          "Insufficient stock or equipment belongs to another palace",
+          409,
+        );
+      [result] = await Allocation.create(
+        [
+          {
+            ...input,
+            venue: booking.venue,
+            consumable: item.consumable,
+            actor: req.user._id,
+          },
+        ],
+        { session },
+      );
+      await Audit.create(
+        [
+          {
+            actor: req.user._id,
+            action: "allocation.create",
+            target: String(result._id),
+          },
+        ],
+        { session },
+      );
+    });
+    res.status(201).json({ data: result });
+  });
+  app.post("/api/allocations/:id/return", team, async (req: any, res: any) => {
+    await mongoose.connection.transaction(async (session) => {
+      const a = await Allocation.findOne({
+        _id: id.parse(req.params.id),
+        ...venueScope(req),
+      }).session(session);
+      if (!a) throw fail("Allocation not found", 404);
+      if (a.status !== "Active") return;
+      await Inventory.updateOne(
+        { _id: a.item },
+        { $inc: { quantity: a.quantity } },
+        { session },
+      );
+      await Allocation.updateOne(
+        { _id: a._id, status: "Active" },
+        { $set: { status: "Returned" } },
+        { session },
+      );
+      await Audit.create(
+        [
+          {
+            actor: req.user._id,
+            action: "allocation.return",
+            target: String(a._id),
+          },
+        ],
+        { session },
+      );
+    });
+    res.json({ data: true });
+  });
   app.post("/api/admin/stock-movements", admin, async (req: any, res: any) => {
     const b = z
       .object({
@@ -319,9 +505,7 @@ export function operations(app: any, auth: any, roles: any) {
     res.json({ data: true });
   });
   app.get("/api/admin/stock-movements", admin, async (_req: any, res: any) =>
-    res.json({
-      data: await Movement.find().sort({ createdAt: -1 }).limit(100),
-    }),
+    res.json(await listPage(Movement.find().sort({ createdAt: -1 }), _req)),
   );
   app.post("/api/admin/attendance", admin, async (req: any, res: any) => {
     const b = z
@@ -331,6 +515,16 @@ export function operations(app: any, auth: any, roles: any) {
         present: z.boolean(),
       })
       .parse(req.body);
+    if (!(await Employee.exists({ _id: b.employee, archived: { $ne: true } })))
+      throw fail("Active employee not found", 404);
+    if (new Date(b.date + "T12:00:00Z").toISOString().slice(0, 10) !== b.date)
+      throw fail("Invalid attendance date");
+    await Audit.create({
+      actor: req.user._id,
+      action: "attendance.record",
+      target: b.employee,
+      metadata: { date: b.date, present: b.present },
+    });
     res.json({
       data: await Attendance.findOneAndUpdate(
         { key: b.employee + ":" + b.date },
@@ -352,11 +546,12 @@ export function operations(app: any, auth: any, roles: any) {
           : req.user.role === "Staff"
             ? { actor: req.user._id }
             : { venue: { $in: req.user.venues } };
-      res.json({
-        data: await OperationReport.find(filter)
-          .sort({ createdAt: -1 })
-          .limit(100),
-      });
+      res.json(
+        await listPage(
+          OperationReport.find(filter).sort({ createdAt: -1 }),
+          req,
+        ),
+      );
     },
   );
   app.post(
@@ -400,9 +595,7 @@ export function operations(app: any, auth: any, roles: any) {
     },
   );
   app.get("/api/admin/salaries", admin, async (_req: any, res: any) =>
-    res.json({
-      data: await SalaryRecord.find().sort({ createdAt: -1 }).limit(100),
-    }),
+    res.json(await listPage(SalaryRecord.find().sort({ createdAt: -1 }), _req)),
   );
   app.post("/api/admin/salaries", admin, async (req: any, res: any) => {
     const input = z
@@ -421,7 +614,8 @@ export function operations(app: any, auth: any, roles: any) {
       if (
         String(prior.employee) !== input.employee ||
         prior.amount !== input.amount ||
-        prior.reference !== input.reference
+        prior.reference !== input.reference ||
+        prior.period !== input.period
       )
         throw fail("Idempotency conflict", 409);
       return res.json({ data: prior });
@@ -434,14 +628,15 @@ export function operations(app: any, auth: any, roles: any) {
     const category = req.query.category
       ? z.enum(categories).parse(req.query.category)
       : undefined;
-    res.json({
-      data: await Gallery.find({
-        published: true,
-        ...(category ? { category } : {}),
-      })
-        .sort({ order: 1, _id: 1 })
-        .limit(100),
-    });
+    res.json(
+      await listPage(
+        Gallery.find({
+          published: true,
+          ...(category ? { category } : {}),
+        }).sort({ order: 1, _id: 1 }),
+        req,
+      ),
+    );
   });
   app.get("/api/settings", async (_req: any, res: any) =>
     res.json({
@@ -491,15 +686,17 @@ export function operations(app: any, auth: any, roles: any) {
       .json({ data: await Review.create({ ...b, customer: req.user._id }) });
   });
   app.get("/api/reviews", async (_req: any, res: any) =>
-    res.json({
-      data: await Review.find({ status: "Approved" })
-        .select("rating text createdAt")
-        .sort({ createdAt: -1 })
-        .limit(100),
-    }),
+    res.json(
+      await listPage(
+        Review.find({ status: "Approved" })
+          .select("rating text createdAt")
+          .sort({ createdAt: -1 }),
+        _req,
+      ),
+    ),
   );
   app.get("/api/admin/reviews", admin, async (_req: any, res: any) =>
-    res.json({ data: await Review.find().sort({ createdAt: -1 }).limit(100) }),
+    res.json(await listPage(Review.find().sort({ createdAt: -1 }), _req)),
   );
   app.patch("/api/admin/reviews/:id", admin, async (req: any, res: any) => {
     await Review.findByIdAndUpdate(id.parse(req.params.id), {

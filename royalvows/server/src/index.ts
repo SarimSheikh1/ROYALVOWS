@@ -1,5 +1,6 @@
+import { listPage } from "./list.js";
 import { integrations } from "./integrations.js";
-import { operations, Menu } from "./operations.js";
+import { operations, Menu, releaseEventStock } from "./operations.js";
 import express from "express";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
@@ -204,7 +205,9 @@ app.post("/api/auth/register", loginLimit, async (req, res) => {
   await login(req, res, u);
 });
 app.post("/api/auth/login", loginLimit, async (req, res) => {
-  const b = credentials.parse(req.body);
+  const b = credentials
+    .extend({ password: z.string().min(1).max(128) })
+    .parse(req.body);
   const u = await User.findOne({ email: b.email }).select("+password");
   const valid = await bcrypt.compare(b.password, u?.password || dummyHash);
   if (!u || !valid) throw fail("Invalid email or password", 401);
@@ -246,7 +249,7 @@ app.get("/api/venues", async (req, res) => {
   if (q.event) filter.eventTypes = q.event;
   if (q.facility) filter.amenities = q.facility;
   if (q.outdoor) filter.outdoor = q.outdoor === "true";
-  res.json({ data: await Venue.find(filter).sort({ name: 1 }).limit(100) });
+  res.json(await listPage(Venue.find(filter).sort({ name: 1 }), req));
 });
 app.get("/api/venues/:id", async (req, res) => {
   const v = await Venue.findOne({
@@ -257,14 +260,14 @@ app.get("/api/venues/:id", async (req, res) => {
   res.json({ data: v });
 });
 app.get("/api/services", async (_req, res) =>
-  res.json({
-    data: await Service.find({ archived: false }).sort({ name: 1 }).limit(100),
-  }),
+  res.json(
+    await listPage(Service.find({ archived: false }).sort({ name: 1 }), _req),
+  ),
 );
 app.get("/api/menus", async (_req, res) =>
-  res.json({
-    data: await Menu.find({ archived: false }).sort({ name: 1 }).limit(100),
-  }),
+  res.json(
+    await listPage(Menu.find({ archived: false }).sort({ name: 1 }), _req),
+  ),
 );
 app.get("/api/packages", async (_req, res) =>
   res.json({
@@ -412,7 +415,41 @@ app.get("/api/bookings", auth, async (req: any, res) => {
     .max(10000)
     .default(1)
     .parse(req.query.page);
-  const records = await Booking.find(scope(req.user))
+  const filters = z
+    .object({
+      from: date.optional(),
+      to: date.optional(),
+      venue: id.optional(),
+      status: z
+        .enum([
+          "Pending",
+          "Awaiting Advance",
+          "Confirmed",
+          "In Progress",
+          "Completed",
+          "Cancelled",
+        ])
+        .optional(),
+    })
+    .parse(req.query);
+  if (filters.from && filters.to && filters.from > filters.to)
+    throw fail("Invalid date range");
+  const filter: any = { ...scope(req.user) };
+  if (req.user.role === "Staff") {
+    delete filter.manager;
+    filter._id = {
+      $in: await Task.distinct("booking", { assignedTo: req.user._id }),
+    };
+  }
+  if (filters.from || filters.to)
+    filter.date = {
+      ...(filters.from ? { $gte: filters.from } : {}),
+      ...(filters.to ? { $lte: filters.to } : {}),
+    };
+  if (filters.venue) filter.$and = [{ venue: filters.venue }];
+  if (filters.status) filter.status = filters.status;
+  const total = await Booking.countDocuments(filter);
+  const records = await Booking.find(filter)
     .populate("venue", "name")
     .populate("customer", "name email")
     .sort({ date: 1, _id: 1 })
@@ -420,6 +457,7 @@ app.get("/api/bookings", auth, async (req: any, res) => {
     .limit(50)
     .lean();
   res.json({
+    pagination: { page, pageSize: 50, total, pages: Math.ceil(total / 50) },
     data: records.map((b: any) => {
       if (!["Customer", "Super Admin"].includes(req.user.role)) {
         delete b.paid;
@@ -448,6 +486,13 @@ app.patch("/api/bookings/:id/status", auth, async (req: any, res) => {
     if (!updated.modifiedCount) throw fail("Booking changed; refresh", 409);
     if (status === "Cancelled")
       await Reservation.deleteOne({ booking: b._id }, { session });
+    if (["Cancelled", "Completed"].includes(status))
+      await releaseEventStock(
+        b._id,
+        status === "Cancelled",
+        req.user._id,
+        session,
+      );
     await Notification.create(
       [{ user: b.customer, message: "Booking status: " + status }],
       { session },
@@ -474,6 +519,17 @@ app.patch(
             }),
           )
           .max(Math.min(2000, b.guests!)),
+        tables: z
+          .array(
+            z.object({
+              name: z.string().min(1).max(50),
+              seats: z.number().int().min(1).max(100),
+              x: z.number().min(0).max(90),
+              y: z.number().min(0).max(85),
+            }),
+          )
+          .max(200)
+          .default([]),
         timeline: z
           .array(
             z.object({ time: z.string().max(30), title: z.string().max(200) }),
@@ -482,7 +538,40 @@ app.patch(
         notes: z.string().max(2000),
       })
       .parse(req.body);
+    if (new Set(input.tables.map((t) => t.name)).size !== input.tables.length)
+      throw fail("Table names must be unique");
+    if (input.tables.length)
+      for (const table of input.tables) {
+        if (
+          input.guestList.filter((g) => g.table === table.name).length >
+          table.seats
+        )
+          throw fail("Table " + table.name + " exceeds its seat capacity");
+      }
     await Booking.updateOne({ _id: b._id }, { $set: input });
+    await audit(req, "booking.plan", String(b._id));
+    res.json({ data: true });
+  },
+);
+app.patch(
+  "/api/bookings/:id/timeline",
+  roles("Super Admin", "Branch Admin", "Hall Manager"),
+  async (req: any, res) => {
+    const b = await ownedBooking(req);
+    const input = z
+      .object({
+        timeline: z
+          .array(
+            z.object({
+              time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+              title: z.string().min(1).max(200),
+            }),
+          )
+          .max(100),
+      })
+      .parse(req.body);
+    await Booking.updateOne({ _id: b._id }, { $set: input });
+    await audit(req, "booking.timeline", String(b._id));
     res.json({ data: true });
   },
 );
@@ -750,9 +839,7 @@ app.get("/api/ledger", auth, async (req: any, res) => {
           },
         }
       : {};
-  res.json({
-    data: await Ledger.find(filter).sort({ createdAt: -1 }).limit(200),
-  });
+  res.json(await listPage(Ledger.find(filter).sort({ createdAt: -1 }), req));
 });
 app.post("/api/ledger/:id/reverse", finance, async (req: any, res) => {
   const input = z
@@ -919,12 +1006,44 @@ app.post("/api/inquiries", async (req: any, res) => {
 app.get("/api/inquiries", auth, async (req: any, res) => {
   if (!["Customer", "Super Admin"].includes(req.user.role))
     throw fail("Access denied", 403);
+  res.json(
+    await listPage(
+      Inquiry.find(
+        req.user.role === "Customer" ? { customer: req.user._id } : {},
+      ).sort({ createdAt: -1 }),
+      req,
+    ),
+  );
+});
+app.get("/api/planners", auth, async (_req, res) =>
   res.json({
-    data: await Inquiry.find(
-      req.user.role === "Customer" ? { customer: req.user._id } : {},
-    )
-      .sort({ createdAt: -1 })
-      .limit(100),
+    data: await User.find({
+      role: { $in: ["Super Admin", "Hall Manager", "Branch Admin"] },
+    })
+      .select("name role")
+      .sort({ name: 1, _id: 1 }),
+  }),
+);
+app.get("/api/consultations/availability", auth, async (req, res) => {
+  const day = date.parse(req.query.date),
+    planner = id.parse(req.query.planner);
+  if (
+    !(await User.exists({
+      _id: planner,
+      role: { $in: ["Super Admin", "Hall Manager", "Branch Admin"] },
+    }))
+  )
+    throw fail("Planner not found", 404);
+  const taken = await Consultation.find({
+    date: day,
+    planner,
+    status: { $in: ["Pending", "Confirmed"] },
+  }).select("slot");
+  res.json({
+    data: ["10:00", "12:00", "15:00", "17:00"].map((slot) => ({
+      slot,
+      available: !taken.some((c) => c.slot === slot),
+    })),
   });
 });
 app.post("/api/consultations", roles("Customer"), async (req: any, res) => {
@@ -933,41 +1052,97 @@ app.post("/api/consultations", roles("Customer"), async (req: any, res) => {
       date,
       slot: z.enum(["10:00", "12:00", "15:00", "17:00"]),
       notes: z.string().max(1000),
+      planner: id,
     })
     .parse(req.body);
   if (b.date < today()) throw fail("Choose a future date");
-  res.status(201).json({
-    data: await Consultation.create({ ...b, customer: req.user._id }),
-  });
+  if (
+    !(await User.exists({
+      _id: b.planner,
+      role: { $in: ["Super Admin", "Hall Manager", "Branch Admin"] },
+    }))
+  )
+    throw fail("Planner not found", 404);
+  res
+    .status(201)
+    .json({
+      data: await Consultation.create({
+        ...b,
+        customer: req.user._id,
+        history: [{ action: "Requested", note: b.notes, actor: req.user._id }],
+      }),
+    });
 });
 app.get("/api/consultations", auth, async (req: any, res) => {
-  if (!["Customer", "Super Admin"].includes(req.user.role))
-    throw fail("Access denied", 403);
+  if (req.user.role === "Staff") throw fail("Access denied", 403);
+  const filter =
+    req.user.role === "Customer"
+      ? { customer: req.user._id }
+      : req.user.role === "Super Admin"
+        ? {}
+        : { planner: req.user._id };
   res.json({
-    data: await Consultation.find(
-      req.user.role === "Customer" ? { customer: req.user._id } : {},
-    )
-      .sort({ date: 1 })
-      .limit(100),
+    data: await Consultation.find(filter)
+      .populate("planner", "name")
+      .populate("customer", "name")
+      .sort({ date: 1, slot: 1, _id: 1 }),
   });
 });
-app.patch("/api/consultations/:id", finance, async (req, res) => {
-  const status = z.enum(["Confirmed", "Cancelled"]).parse(req.body.status);
-  const result =
-    status === "Cancelled"
-      ? await Consultation.findByIdAndDelete(id.parse(req.params.id))
-      : await Consultation.findByIdAndUpdate(id.parse(req.params.id), {
-          status,
-        });
-  if (!result) throw fail("Not found", 404);
-  res.json({ data: true });
+app.patch("/api/consultations/:id", auth, async (req: any, res) => {
+  const input = z
+    .object({
+      status: z.enum(["Confirmed", "Completed", "Cancelled"]).optional(),
+      note: z.string().min(1).max(2000).optional(),
+    })
+    .refine((v) => v.status || v.note, "Choose a status or enter a note")
+    .parse(req.body);
+  if (req.user.role === "Staff") throw fail("Access denied", 403);
+  if (
+    req.user.role === "Customer" &&
+    (input.status !== "Cancelled" || input.note)
+  )
+    throw fail("Customers can only cancel their consultation", 403);
+  const filter: any = { _id: id.parse(req.params.id) };
+  if (req.user.role === "Customer") filter.customer = req.user._id;
+  else if (req.user.role !== "Super Admin") filter.planner = req.user._id;
+  const c = await Consultation.findOne(filter);
+  if (!c) throw fail("Consultation not found", 404);
+  if (
+    input.status &&
+    !(
+      {
+        Pending: ["Confirmed", "Cancelled"],
+        Confirmed: ["Completed", "Cancelled"],
+      } as Record<string, string[]>
+    )[c.status!]?.includes(input.status)
+  )
+    throw fail("Invalid consultation status transition");
+  const result = await Consultation.findOneAndUpdate(
+    { ...filter, status: c.status },
+    {
+      $set: input.status ? { status: input.status } : {},
+      $push: {
+        history: {
+          action: input.status || "Note",
+          note: input.note || "",
+          actor: req.user._id,
+          time: new Date(),
+        },
+      },
+    },
+    { new: true },
+  );
+  if (!result) throw fail("Consultation changed; refresh", 409);
+  await audit(req, "consultation." + (input.status || "note"), String(c._id));
+  res.json({ data: result });
 });
 app.get("/api/notifications", auth, async (req: any, res) =>
-  res.json({
-    data: await Notification.find({ user: req.user._id })
-      .sort({ createdAt: -1 })
-      .limit(100),
-  }),
+  res.json(
+    await listPage(
+      Notification.find({ user: req.user._id }).sort({ createdAt: -1 }),
+      req,
+    ),
+  ),
 );
 app.get("/api/tasks", auth, async (req: any, res) => {
   let filter: any = {};
@@ -975,9 +1150,7 @@ app.get("/api/tasks", auth, async (req: any, res) => {
   if (req.user.role === "Staff") filter = { assignedTo: req.user._id };
   else if (req.user.role !== "Super Admin")
     filter = { venue: { $in: req.user.venues } };
-  res.json({
-    data: await Task.find(filter).sort({ createdAt: -1 }).limit(100),
-  });
+  res.json(await listPage(Task.find(filter).sort({ createdAt: -1 }), req));
 });
 app.post(
   "/api/tasks",
@@ -1024,25 +1197,27 @@ app.get(
   "/api/team-members",
   roles("Super Admin", "Branch Admin", "Hall Manager"),
   async (req: any, res) =>
-    res.json({
-      data: await User.find({
-        role: { $in: ["Hall Manager", "Staff"] },
-        ...(req.user.role === "Super Admin"
-          ? {}
-          : { venues: { $in: req.user.venues } }),
-      })
-        .select("name role venues")
-        .sort({ name: 1 })
-        .limit(100),
-    }),
+    res.json(
+      await listPage(
+        User.find({
+          role: { $in: ["Hall Manager", "Staff"] },
+          ...(req.user.role === "Super Admin"
+            ? {}
+            : { venues: { $in: req.user.venues } }),
+        })
+          .select("name role venues")
+          .sort({ name: 1 }),
+        req,
+      ),
+    ),
 );
 app.get("/api/admin/users", finance, async (_req, res) =>
-  res.json({
-    data: await User.find()
-      .select("name email role venues")
-      .sort({ name: 1 })
-      .limit(100),
-  }),
+  res.json(
+    await listPage(
+      User.find().select("name email role venues").sort({ name: 1 }),
+      _req,
+    ),
+  ),
 );
 app.patch("/api/admin/users/:id", finance, async (req: any, res) => {
   const input = z
@@ -1125,16 +1300,17 @@ app.post("/api/admin/maintenance", admins, async (req: any, res) => {
     .json({ data: await Reservation.create({ ...b, maintenance: true }) });
 });
 app.get("/api/admin/maintenance", admins, async (req: any, res) =>
-  res.json({
-    data: await Reservation.find({
-      maintenance: true,
-      ...(req.user.role === "Super Admin"
-        ? {}
-        : { venue: { $in: req.user.venues } }),
-    })
-      .sort({ date: 1 })
-      .limit(100),
-  }),
+  res.json(
+    await listPage(
+      Reservation.find({
+        maintenance: true,
+        ...(req.user.role === "Super Admin"
+          ? {}
+          : { venue: { $in: req.user.venues } }),
+      }).sort({ date: 1 }),
+      req,
+    ),
+  ),
 );
 app.delete("/api/admin/maintenance/:id", admins, async (req: any, res) => {
   const r = await Reservation.findOneAndDelete({
@@ -1149,7 +1325,7 @@ app.delete("/api/admin/maintenance/:id", admins, async (req: any, res) => {
   res.json({ data: true });
 });
 app.get("/api/expenses", finance, async (_req, res) =>
-  res.json({ data: await Expense.find().sort({ createdAt: -1 }).limit(100) }),
+  res.json(await listPage(Expense.find().sort({ createdAt: -1 }), _req)),
 );
 app.post("/api/expenses", finance, async (req: any, res) => {
   const b = z
@@ -1169,7 +1345,7 @@ app.post("/api/expenses", finance, async (req: any, res) => {
   });
 });
 app.get("/api/audit", finance, async (_req, res) =>
-  res.json({ data: await Audit.find().sort({ createdAt: -1 }).limit(100) }),
+  res.json(await listPage(Audit.find().sort({ createdAt: -1 }), _req)),
 );
 app.get("/api/reports", finance, async (req, res) => {
   const from = date.parse(req.query.from),
@@ -1261,6 +1437,10 @@ await mongoose.connect(env.MONGODB_URI);
 await Promise.all(
   mongoose.modelNames().map((name) => mongoose.model(name).init()),
 );
+// Replace the former global slot index after the new planner-slot index exists.
+const consultationIndexes = await Consultation.collection.indexes();
+if (consultationIndexes.some((i) => i.name === "date_1_slot_1"))
+  await Consultation.collection.dropIndex("date_1_slot_1");
 await Counter.updateOne(
   { key: "invoice" },
   { $setOnInsert: { value: 0 } },

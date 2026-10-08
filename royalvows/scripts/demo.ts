@@ -1,6 +1,6 @@
 import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { spawn } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
 const db = await MongoMemoryReplSet.create({
   replSet: { count: 1 },
@@ -35,6 +35,28 @@ async function cli(mode: string) {
 }
 await cli("seed");
 await cli("admin");
+try {
+  const owner = JSON.parse(await readFile(".runtime/demo-owner.json", "utf8"));
+  const { default: mongoose } = await import("mongoose");
+  const { User } = await import("../server/src/models.js");
+  await mongoose.connect(env.MONGODB_URI);
+  await User.updateOne(
+    { email: owner.email },
+    {
+      $set: {
+        email: owner.email,
+        name: owner.name,
+        password: owner.password,
+        role: "Super Admin",
+      },
+    },
+    { upsert: true },
+  );
+  await mongoose.disconnect();
+} catch (error: any) {
+  if (error.code !== "ENOENT") throw error;
+}
+
 await mkdir(".runtime", { recursive: true });
 await writeFile(
   ".runtime/demo-access.txt",
@@ -45,10 +67,14 @@ await writeFile(
     "\nRegister customer accounts through the website.\n",
 );
 children.push(
-  spawn(process.execPath, ["--import", "tsx", "server/src/index.ts"], {
-    env,
-    stdio: "inherit",
-  }),
+  spawn(
+    process.execPath,
+    ["--watch", "--import", "tsx", "server/src/index.ts"],
+    {
+      env,
+      stdio: "inherit",
+    },
+  ),
 );
 children.push(
   spawn(

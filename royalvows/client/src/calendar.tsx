@@ -1,13 +1,33 @@
 import { businessDate } from "./core";
 import { useState } from "react";
-import { useData, State, type Row } from "./core";
+import { useAllBookings, State, type Row } from "./core";
 export function EventCalendar() {
-  const q = useData("/bookings");
   const [mode, setMode] = useState("Month"),
     [day, setDay] = useState(businessDate()),
     [venue, setVenue] = useState(""),
     [status, setStatus] = useState(""),
     [selected, setSelected] = useState<Row | null>(null);
+  const rangeStart = mode === "Month" ? day.slice(0, 7) + "-01" : day;
+  const rangeEnd = new Date(rangeStart + "T12:00:00Z");
+  rangeEnd.setUTCDate(
+    rangeEnd.getUTCDate() +
+      (mode === "Month"
+        ? new Date(
+            Number(day.slice(0, 4)),
+            Number(day.slice(5, 7)),
+            0,
+          ).getDate()
+        : mode === "Week"
+          ? 7
+          : 1) -
+      1,
+  );
+  const q = useAllBookings(
+    "/bookings?from=" +
+      rangeStart +
+      "&to=" +
+      rangeEnd.toISOString().slice(0, 10),
+  );
   const records = (q.data || []).filter(
     (r) =>
       (!venue || r.venue?._id === venue) && (!status || r.status === status),

@@ -10,7 +10,7 @@ export const money = (n: number) =>
     maximumFractionDigits: 0,
   }).format(n / 100);
 let csrf = "";
-export async function api(path: string, method = "GET", body?: unknown) {
+export async function response(path: string, method = "GET", body?: unknown) {
   const r = await fetch("/api" + path, {
     method,
     credentials: "include",
@@ -20,12 +20,53 @@ export async function api(path: string, method = "GET", body?: unknown) {
   const j = await r.json();
   if (!r.ok) throw new Error(j.error?.message || "Request failed");
   if (j.data?.csrf) csrf = j.data.csrf;
-  return j.data;
+  return j;
+}
+export async function api(path: string, method = "GET", body?: unknown) {
+  return (await response(path, method, body)).data;
+}
+export function useBookingPage(path: string) {
+  return useQuery<{
+    data: Row[];
+    pagination: { page: number; pages: number; total: number };
+  }>({
+    queryKey: ["booking-page", path],
+    queryFn: () => response(path),
+    retry: 1,
+  });
+}
+export function useAllBookings(path = "/bookings") {
+  return useQuery<Row[]>({
+    queryKey: ["all-bookings", path],
+    queryFn: async () => {
+      const first = await response(path);
+      const rows = [...first.data];
+      for (let page = 2; page <= first.pagination.pages; page++) {
+        const next = await response(
+          path + (path.includes("?") ? "&" : "?") + "page=" + page,
+        );
+        rows.push(...next.data);
+      }
+      return rows;
+    },
+    retry: 1,
+  });
 }
 export function useData(path: string) {
   return useQuery<Row[]>({
     queryKey: [path],
-    queryFn: () => api(path),
+    queryFn: async () => {
+      const first = await response(path);
+      if (!Array.isArray(first.data) || !first.pagination) return first.data;
+      const rows = [...first.data];
+      for (let page = 2; page <= first.pagination.pages; page++) {
+        const next = await response(
+          path + (path.includes("?") ? "&" : "?") + "page=" + page,
+        );
+        rows.push(...next.data);
+      }
+      return rows;
+    },
     retry: 1,
   });
 }

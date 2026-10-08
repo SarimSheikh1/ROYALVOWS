@@ -1,5 +1,5 @@
+import { parseGuestCsv, exportGuestCsv } from "./guest-csv";
 import { useState } from "react";
-import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { api, useData, type Row } from "./core";
 export function PasswordHelp() {
@@ -82,7 +82,7 @@ export function GuestTools({
   return (
     <div className="panel">
       <label>
-        Import guests (CSV: name,table; simple unquoted values)
+        Import guests (CSV: name,table; quoted values supported)
         <input
           type="file"
           accept=".csv,text/csv"
@@ -91,32 +91,7 @@ export function GuestTools({
               const f = e.target.files?.[0];
               if (!f) return;
               if (f.size > 256000) throw new Error("CSV must be below 256 KB");
-              const text = await f.text();
-              const lines = text
-                .replace(/^\uFEFF/, "")
-                .trim()
-                .split(/\r?\n/);
-              if (lines.shift()?.toLowerCase() !== "name,table")
-                throw new Error("Use the header name,table");
-              const rows = lines.map((line) => {
-                const columns = line.split(",");
-                if (columns.length !== 2)
-                  throw new Error(
-                    "Use exactly two columns without embedded commas",
-                  );
-                return { name: columns[0].trim(), table: columns[1].trim() };
-              });
-              onImport(
-                z
-                  .array(
-                    z.object({
-                      name: z.string().min(1).max(100),
-                      table: z.string().max(50),
-                    }),
-                  )
-                  .max(2000)
-                  .parse(rows),
-              );
+              onImport(parseGuestCsv(await f.text()));
               setError(
                 "Guest list imported. Save the wedding plan to persist it.",
               );
@@ -128,18 +103,13 @@ export function GuestTools({
       </label>
       <button
         onClick={() => {
-          const safe = (value: string) => {
-            const s = value.replaceAll(",", " ").replaceAll("\n", " ");
-            return /^[=+@-]/.test(s) ? "'" + s : s;
-          };
           const blob = new Blob(
             [
-              "name,table\n" +
-                guests
-                  .map((g) => safe(g.name) + "," + safe(g.table))
-                  .join("\n"),
+              exportGuestCsv(
+                guests.map((g) => ({ name: g.name, table: g.table })),
+              ),
             ],
-            { type: "text/csv" },
+            { type: "text/csv;charset=utf-8" },
           );
           const url = URL.createObjectURL(blob);
           const a = document.createElement("a");

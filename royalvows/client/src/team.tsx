@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, useData, State, type Row } from "./core";
+import { api, useData, State, useUser, type Row } from "./core";
 export function TaskBoard() {
   const q = useData("/tasks");
   const [message, setMessage] = useState("");
@@ -125,5 +125,110 @@ export function TeamReports() {
         </article>
       ))}
     </>
+  );
+}
+
+export function EventTimeline() {
+  const bookings = useData("/bookings"),
+    auth = useUser();
+  const [selected, setSelected] = useState(""),
+    [timeline, setTimeline] = useState<Row[]>([]),
+    [message, setMessage] = useState("");
+  return (
+    <section className="panel">
+      <h2>Wedding-day event timeline</h2>
+      <State query={bookings} />
+      <label>
+        Event
+        <select
+          value={selected}
+          onChange={(e) => {
+            setSelected(e.target.value);
+            setTimeline(
+              bookings.data?.find((b) => b._id === e.target.value)?.timeline ||
+                [],
+            );
+          }}
+        >
+          <option value="">Choose event</option>
+          {bookings.data?.map((b) => (
+            <option key={b._id} value={b._id}>
+              {b.venue?.name} - {b.date}
+            </option>
+          ))}
+        </select>
+      </label>
+      {timeline.map((t, i) => (
+        <div className="form-grid" key={i}>
+          <label>
+            Time
+            <input
+              type="time"
+              required
+              value={t.time}
+              onChange={(e) =>
+                setTimeline(
+                  timeline.map((r, n) =>
+                    n === i ? { ...r, time: e.target.value } : r,
+                  ),
+                )
+              }
+            />
+          </label>
+          <label>
+            Activity
+            <input
+              required
+              maxLength={200}
+              value={t.title}
+              onChange={(e) =>
+                setTimeline(
+                  timeline.map((r, n) =>
+                    n === i ? { ...r, title: e.target.value } : r,
+                  ),
+                )
+              }
+            />
+          </label>
+          <button
+            onClick={() => setTimeline(timeline.filter((_, n) => n !== i))}
+          >
+            Remove activity
+          </button>
+        </div>
+      ))}
+      {auth.data?.user?.role !== "Staff" && (
+        <>
+          <button
+            onClick={() =>
+              setTimeline([...timeline, { time: "12:00", title: "" }])
+            }
+          >
+            Add activity
+          </button>
+          <button
+            className="button"
+            disabled={!selected}
+            onClick={async () => {
+              try {
+                await api("/bookings/" + selected + "/timeline", "PATCH", {
+                  timeline: timeline.map(({ time, title }) => ({
+                    time,
+                    title,
+                  })),
+                });
+                await bookings.refetch();
+                setMessage("Event timeline saved.");
+              } catch (e: any) {
+                setMessage(e.message);
+              }
+            }}
+          >
+            Save event timeline
+          </button>
+        </>
+      )}
+      <p role="status">{message}</p>
+    </section>
   );
 }

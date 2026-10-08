@@ -223,14 +223,12 @@ export function integrations(app: any, auth: any, roles: any, loginLimit: any) {
           action: "media.upload",
           target: uploaded.public_id,
         });
-        return res
-          .status(201)
-          .json({
-            data: {
-              url: uploaded.secure_url,
-              storage: "Configured Cloudinary storage",
-            },
-          });
+        return res.status(201).json({
+          data: {
+            url: uploaded.secure_url,
+            storage: "Configured Cloudinary storage",
+          },
+        });
       }
       const dir = path.resolve("uploads");
       await mkdir(dir, { recursive: true });
