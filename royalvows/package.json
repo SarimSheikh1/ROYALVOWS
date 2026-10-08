@@ -1,1 +1,35 @@
-{"name":"royalvows","private":true,"version":"1.0.0","workspaces":["client","server"],"scripts":{"dev":"concurrently \"npm run dev -w server\" \"npm run dev -w client\"","build":"npm run build --workspaces","typecheck":"npm run typecheck --workspaces","lint":"eslint client/src server/src","test":"npm test -w server","seed":"npm run seed -w server","create-admin":"npm run create-admin -w server"},"devDependencies":{"@playwright/test":"^1.64.0","concurrently":"^9.2.0","eslint":"^9.36.0","mongodb-memory-server":"^11.3.0","prettier":"^3.9.9","typescript":"^5.9.2","typescript-eslint":"^8.44.0"}}
+{
+  "name": "royalvows",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": [
+    "client",
+    "server"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w server\" \"npm run dev -w client\"",
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "lint": "eslint client/src server/src",
+    "test": "npm test -w server",
+    "seed": "npm run seed -w server",
+    "create-admin": "npm run create-admin -w server",
+    "test:integration": "tsx scripts/integration.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test:browser": "tsx scripts/browser-qa.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "concurrently": "^9.2.0",
+    "eslint": "^9.36.0",
+    "mongodb-memory-server": "^11.3.0",
+    "prettier": "^3.9.9",
+    "sharp": "^0.35.5",
+    "typescript": "^5.9.2",
+    "typescript-eslint": "^8.44.0"
+  },
+  "type": "module",
+  "overrides": {
+    "shell-quote": "^1.12.0"
+  }
+}
