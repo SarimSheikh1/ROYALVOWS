@@ -377,6 +377,7 @@ export function Palace() {
     queryFn: () => api("/venues/" + id),
   });
   const [month, setMonth] = useState(businessDate().slice(0, 7));
+  const [selectedDate, setSelectedDate] = useState("");
   const avail = useData("/availability/" + id + "?month=" + month);
   const v = q.data;
   return (
@@ -436,11 +437,17 @@ export function Palace() {
                 <input
                   type="month"
                   value={month}
-                  onChange={(e) => setMonth(e.target.value)}
+                  min={businessDate().slice(0, 7)}
+                  onChange={(e) => {
+                    if (e.target.value) setMonth(e.target.value);
+                    setSelectedDate("");
+                  }}
                 />
               </label>
               <State query={avail} />
               <div className="calendar-grid">
+                {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((day) => <span className="calendar-weekday" key={day}>{day}</span>)}
+                {Array.from({ length: new Date(Number(month.slice(0, 4)), Number(month.slice(5)) - 1, 1).getDay() }, (_, i) => <span aria-hidden="true" key={"blank-" + i} />)}
                 {Array.from(
                   {
                     length: new Date(
@@ -452,21 +459,31 @@ export function Palace() {
                   (_, i) => {
                     const d = month + "-" + String(i + 1).padStart(2, "0");
                     const slots = avail.data?.filter((r) => r.date === d) || [];
+                    const past = d < businessDate();
+                    const full = ["Lunch", "Evening"].every((slot) => slots.some((r) => r.slot === slot));
                     return (
-                      <div key={d}>
+                      <button type="button" key={d} className={selectedDate === d ? "selected" : ""} aria-label={d + (past ? " past date" : full ? " reserved" : " choose date")} aria-pressed={selectedDate === d} disabled={past || full || !avail.data || avail.isFetching || !!avail.error} onClick={() => setSelectedDate(d)}>
                         <strong>{i + 1}</strong>
                         <small>
-                          {slots.length === 2
+                          {past ? "Past" : !avail.data || avail.isFetching ? "Loading" : full
                             ? "Reserved"
                             : slots.length === 1
                               ? slots[0].slot + " reserved"
                               : "Available"}
                         </small>
-                      </div>
+                      </button>
                     );
                   },
                 )}
               </div>
+              {selectedDate && avail.data && !avail.isFetching && !avail.error && (
+                <div className="calendar-selection">
+                  <p>Choose a time for {selectedDate}</p>
+                  {["Lunch", "Evening"].map((slot) => avail.data!.some((r) => r.date === selectedDate && r.slot === slot)
+                    ? <span className="notice" key={slot}>{slot} reserved</span>
+                    : <Link className="button" key={slot} to={"/planning?" + new URLSearchParams({ venue: id!, date: selectedDate, slot }).toString()}>Book {slot}</Link>)}
+                </div>
+              )}
               <small>
                 Lunch: 12:00-16:00 &middot; Evening: 18:00-23:00. Pending
                 requests reserve their slot until reviewed or cancelled.
@@ -527,8 +544,8 @@ export function Planning() {
   const [form, setForm] = useState({
     venue: new URLSearchParams(location.search).get("venue") || "",
     package: "",
-    date: "",
-    slot: "Evening",
+    date: /^\d{4}-\d{2}-\d{2}$/.test(new URLSearchParams(location.search).get("date") || "") ? new URLSearchParams(location.search).get("date")! : "",
+    slot: new URLSearchParams(location.search).get("slot") === "Lunch" ? "Lunch" : "Evening",
     event: "Walima",
     guests: 150,
     theme: "Ivory Elegance",

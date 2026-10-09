@@ -1,4 +1,6 @@
 import { listPage } from "./list.js";
+import { paymentReceipt } from "./receipt.js";
+import { WhatsAppMessage, dispatchWhatsApp } from "./whatsapp.js";
 import { integrations } from "./integrations.js";
 import { operations, Menu, releaseEventStock } from "./operations.js";
 import express from "express";
@@ -501,7 +503,14 @@ app.patch("/api/bookings/:id/status", auth, async (req: any, res) => {
       { session },
     );
     await audit(req, "booking.status", String(b._id), session);
+    if (status === "Confirmed") {
+      const venue = await Venue.findById(b.venue).session(session);
+      await WhatsAppMessage.create([{ booking: b._id,
+        to: process.env.WHATSAPP_CONFIRMATION_TO || "923170046008",
+        details: [String(b._id), venue?.name || "RoyalVows", b.date || "", b.slot || "", b.event || ""] }], { session });
+    }
   });
+  if (status === "Confirmed") void dispatchWhatsApp().catch(() => console.error("WhatsApp queue unavailable"));
   res.json({ data: true });
 });
 app.patch(
@@ -673,26 +682,17 @@ app.get("/api/payments/:id/receipt", auth, async (req: any, res) => {
   });
   if (!p || !["Customer", "Super Admin"].includes(req.user.role))
     throw fail("Receipt unavailable", 404);
-  const doc = new PDFDocument({ size: "A4", margin: 48 });
+  const booking = await Booking.findById(p.booking);
+  const [customer, venue] = await Promise.all([
+    User.findById(p.customer).select("name"),
+    booking ? Venue.findById(booking.venue).select("name") : Promise.resolve(null),
+  ]);
+  const doc = paymentReceipt({ receiptId: String(p._id), bookingId: String(p.booking),
+    amount: p.amount!, method: p.method || "", reference: p.reference || "",
+    customer: customer?.name || "", venue: venue?.name || "", event: booking?.event || "",
+    eventDate: booking?.date || "", slot: booking?.slot || "", reportedAt: p.get("createdAt") || p._id.getTimestamp() });
   res.type("application/pdf").attachment("RoyalVows-receipt-" + p._id + ".pdf");
   doc.pipe(res);
-  doc
-    .fillColor("#A78042")
-    .fontSize(32)
-    .text("ROYALVOWS")
-    .fillColor("#090B10")
-    .fontSize(20)
-    .text("Approved payment receipt")
-    .moveDown()
-    .fontSize(12)
-    .text("Receipt: RVP-" + p._id)
-    .text("Booking: " + p.booking)
-    .text("Amount: PKR " + (p.amount! / 100).toFixed(2))
-    .text("Method: " + p.method)
-    .text("Reference: " + p.reference)
-    .text(
-      "Payment verified by an authorized administrator. Refunds are tracked separately.",
-    );
   doc.end();
 });
 app.get("/api/payments", auth, async (req: any, res) => {
@@ -1449,6 +1449,8 @@ await Counter.updateOne(
   { $setOnInsert: { value: 0 } },
   { upsert: true },
 );
+void dispatchWhatsApp().catch(() => console.error("WhatsApp queue unavailable"));
+setInterval(() => void dispatchWhatsApp().catch(() => console.error("WhatsApp queue unavailable")), 5000).unref();
 app.listen(
   env.PORT,
   process.env.HOST ||

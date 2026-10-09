@@ -508,14 +508,25 @@ textarea {
   grid-template-columns: repeat(7, 1fr);
   margin: 20px 0;
 }
-.calendar-grid > div {
+.calendar-grid > button {
   border: 1px solid #d7cec0;
   padding: 12px 5px;
   min-height: 65px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
 }
+.calendar-grid > button:disabled { opacity: .5; cursor: default; }
+.calendar-grid > button.selected { background: #e8d6af; border-color: #9d783a; }
+.calendar-grid > button:focus-visible { outline: 2px solid #9d783a; outline-offset: -3px; }
+.calendar-weekday { text-align: center; font-size: 12px; padding: 8px 0; }
+.calendar-selection { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 20px; }
+.calendar-selection p { flex-basis: 100%; margin: 0; }
 .calendar-grid small {
   display: block;
-  font-size: 7px;
+  font-size: 10px;
 }
 .collection-grid {
   display: grid;

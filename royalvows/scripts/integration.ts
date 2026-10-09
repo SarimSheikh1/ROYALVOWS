@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
+import { WhatsAppMessage } from "../server/src/whatsapp.js";
 import {
   User,
   Service,
@@ -31,6 +32,8 @@ const child = spawn(
       PORT: String(port),
       SMTP_HOST: "",
       CLOUDINARY_URL: "",
+      WHATSAPP_ACCESS_TOKEN: "",
+      WHATSAPP_CONFIRMATION_TO: "923170046008",
     },
     stdio: ["ignore", "pipe", "pipe"],
   },
@@ -211,6 +214,21 @@ try {
     csrf: aj.data.csrf,
     id: aj.data.user._id,
   };
+  await check("confirmation queues one WhatsApp message; rejected repeat cannot duplicate it", async () => {
+    const response = await request("/bookings", "POST", { ...body, date: "2027-02-15" }, a);
+    assert.equal(response.status, 201);
+    const confirmed = (await response.json()).data._id;
+    assert.equal(await WhatsAppMessage.countDocuments({ booking: confirmed }), 0);
+    await Booking.updateOne({ _id: confirmed }, { $set: { status: "Awaiting Advance", paid: 1000000 } });
+    assert.equal((await request("/bookings/" + confirmed + "/status", "PATCH", { status: "Confirmed" }, admin)).status, 200);
+    const message = await WhatsAppMessage.findOne({ booking: confirmed });
+    assert.equal(message?.to, "923170046008");
+    assert.equal(message?.status, "Pending");
+    assert.deepEqual(message?.details.slice(1), [venue.name, "2027-02-15", "Evening", "Walima"]);
+    assert.equal((await request("/bookings/" + confirmed + "/status", "PATCH", { status: "Confirmed" }, admin)).status, 400);
+    assert.equal(await WhatsAppMessage.countDocuments({ booking: confirmed }), 1);
+    assert.equal((await request("/bookings/" + confirmed + "/status", "PATCH", { status: "Cancelled" }, admin)).status, 200);
+  });
   const paymentBody = {
     amount: 1000000,
     method: "Bank Transfer",
@@ -263,6 +281,13 @@ try {
     reference: "TEST-refund",
     key: crypto.randomUUID(),
   };
+  await check("approved payment receipt is a PDF and denies another customer", async () => {
+    const receipt = await request("/payments/" + payment + "/receipt", "GET", undefined, admin);
+    assert.equal(receipt.status, 200);
+    assert.match(receipt.headers.get("content-type") || "", /application\/pdf/);
+    assert.equal(Buffer.from(await receipt.arrayBuffer()).subarray(0, 4).toString(), "%PDF");
+    assert.equal((await request("/payments/" + payment + "/receipt", "GET", undefined, b)).status, 404);
+  });
   await check("refund retry does not double-debit ledger", async () => {
     assert.equal(
       (await request("/bookings/" + booking + "/refund", "POST", refund, admin))
