@@ -1,3 +1,4 @@
+import { WeddingMusic } from "./music";
 import { SEO } from "./seo";
 
 import React, { useState, lazy, Suspense } from "react";
@@ -140,6 +141,7 @@ function App() {
         </Suspense>
       </div>
       <Footer />
+      <WeddingMusic />
     </BrowserRouter>
   );
 }

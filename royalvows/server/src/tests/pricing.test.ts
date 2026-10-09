@@ -38,3 +38,22 @@ test("negative rates and excessive discounts are rejected", () => {
   assert.throws(() => price(v, p, 10, { discount: 999999 }));
   assert.throws(() => price({ ...v, rental: -1 }, p, 10));
 });
+test("non-finite optional rates cannot silently become zero", () => {
+  assert.throws(() => price(v, p, 10, { addons: NaN }));
+  assert.throws(() => price(v, p, 10, { discount: NaN }));
+});
+test("unsafe intermediate totals are rejected before a discount hides overflow", () => {
+  assert.throws(() => price(
+    { rental: Number.MAX_SAFE_INTEGER, capacity: 100, taxBps: 0 },
+    p, 10, { discount: Number.MAX_SAFE_INTEGER },
+  ));
+});
+test("large valid estimates round tax exactly in integer minor units", () => {
+  const result = price(
+    { rental: 4500000000000001, capacity: 1, taxBps: 1 },
+    { name: "Bespoke", perHead: 0, decor: 0, minGuests: 1, maxGuests: 1 },
+    1,
+  );
+  assert.equal(result.tax, 450000000000);
+  assert.equal(result.total, 4500450000000001);
+});

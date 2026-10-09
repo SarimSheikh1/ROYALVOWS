@@ -11,7 +11,7 @@ import { useState, useEffect, type ReactNode } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
-import { ArrowUpRight, LayoutDashboard, Heart, LogOut } from "lucide-react";
+import { ArrowUpRight, LayoutDashboard, Heart, LogOut, Eye, EyeOff } from "lucide-react";
 import {
   api,
   useData,
@@ -26,7 +26,8 @@ import {
 } from "./core";
 export function Login() {
   const [register, setRegister] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [showPassword, setShowPassword] = useState(false);
   const {
     register: field,
     handleSubmit,
@@ -74,9 +75,10 @@ export function Login() {
           </label>
           <label>
             Password
+            <span className="password-field">
             <input
               aria-label="Password"
-              type="password"
+              type={showPassword ? "text" : "password"}
               minLength={register ? 12 : 1}
               {...field("password", {
                 required: true,
@@ -84,6 +86,16 @@ export function Login() {
               })}
               autoComplete={register ? "new-password" : "current-password"}
             />
+            <button
+              type="button"
+              className="password-toggle"
+              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-pressed={showPassword}
+              onClick={() => setShowPassword(!showPassword)}
+            >
+              {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+            </span>
             {register && <small>At least 12 characters.</small>}
           </label>
           {error && (

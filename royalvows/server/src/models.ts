@@ -290,6 +290,7 @@ export const Service = mongoose.model(
       name: { type: String, unique: true },
       rate: Number,
       unit: { type: String, enum: ["event", "guest"] },
+      includedWithPackage: { type: Boolean, default: false },
       description: String,
       archived: { type: Boolean, default: false },
     },

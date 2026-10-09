@@ -121,3 +121,15 @@ Restore to a separate database first and verify bookings/ledger totals. Do not d
 client/src contains public pages, portal/operations, API/query helpers, calendar, gallery, SEO and styles. server/src contains API/security, schemas, operating resources, providers/worker and pricing logic; scripts contains CLI demonstration and integration/browser checks. Roles/permissions are embedded in users and enforced in middleware. Customers are customer-role Users; venue/branch scopes are embedded venue assignments; media lives in GalleryImage; refund money is separately recorded in Refund and LedgerEntry. This avoids parallel identity/permission collections while retaining historical booking and invoice snapshots. Further component/router extraction can be done without changing persisted records.
 
 See MEDIA.md for provenance and FEATURE_STATUS.md for the requirement checklist. This is a working implementation with explicit remaining limits, not a zero-configuration production deployment.
+
+## Local test workspace
+
+When the private ignored `.runtime/demo-owner.json` owner configuration exists, `npm run demo` restores that owner as the sole administrator and adds clearly named local test data: four bookings in different states, pending/approved payments with matching ledgers and invoices, preparation tasks, an expense, inventory, supplier, inquiry and consultation. Other previous demo administrators become customer accounts, preserving their references. Sample customers and manager accounts use randomized inaccessible passwords; no messages are sent. The seed is idempotent and rejects databases whose names do not end in `_demo`.
+
+The database is still temporary. Samples are recreated on each demo start; edits to business/test records require persistent Docker/Atlas storage to survive shutdown. The privately configured owner password hash is restored on restart and is excluded from Git.
+
+## Wedding soundtrack and complimentary package benefits
+
+The site embeds the requested YouTube video `hghqd1eBTYQ` and attempts playback on each full page open/refresh. Audible autoplay depends on browser permission; a visible Play/Pause button and YouTube controls provide user-initiated playback. Closing the player stops it, and the music button reopens it. The soundtrack is streamed through the official YouTube player.
+
+Every active demo collection includes a complimentary sound system and a 10-minute dance. Included services are stored in MongoDB with `includedWithPackage`; the server automatically snapshots them at zero charge, even when not selected as paid add-ons. Paid extras remain chargeable. Historical booking snapshots are preserved. Admin Addons can edit the complimentary inclusion flag. Demo seed reapplies the owner's promotional benefits idempotently.

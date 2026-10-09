@@ -1,0 +1,49 @@
+ROYALVOWS - BAQI KAAM AUR CURRENT RUN STATUS
+Updated: 9 October 2026 (Asia/Karachi)
+
+PROJECT ABHI RUNNING HAI
+Website: http://localhost:5173
+API: http://127.0.0.1:4000/api/health
+Admin credentials: royalvows/.runtime/demo-access.txt
+Demo real temporary MongoDB use karta hai. Launcher band hone par demo database delete hota hai.
+
+IS SESSION MEIN COMPLETE KIYA
+- Dependencies install: 401 packages, audit reported 0 vulnerabilities.
+- Pricing mein NaN optional rates aur unsafe intermediate totals reject kiye.
+- Tax rounding exact integer arithmetic se calculate hoti hai.
+- PKR amounts mein paisa bhi show hota hai.
+- Default npm test mein guest CSV tests shamil kiye.
+- Integration API startup wait ko 60 seconds aur explicit readiness failure diya.
+- Lint, TypeScript, production build: PASS.
+- Pricing tests 9/9 aur CSV tests 3/3: PASS.
+- Real MongoDB integration checks 21/21: PASS.
+- Frontend HTTP 200; API database connected.
+
+BAQI DEVELOPMENT - FEATURE_STATUS.md SE REVIEWED
+1. Official payment gateway adapters aur signature-verified/idempotent webhooks.
+   Abhi Cash/Bank/Easypaisa/JazzCash manual payment approval supported hai.
+2. Configurable pending-booking hold expiry aur automatic release; abhi admin review/cancellation se release hota hai.
+3. Variable-duration overlapping bookings; abhi fixed Lunch/Evening slots hain.
+4. Full accounting: recognized revenue, detailed branch profitability aur budgeted catering costs.
+5. Full catering procurement/preparation scheduling aur bespoke decor rate catalog.
+6. Complete HR/payroll aur per-user customizable financial permissions.
+7. Configurable consultation slot catalog; abhi four fixed application slots hain.
+8. Public SSR/prerendering aur authentic venue structured data.
+9. Large secondary lists ke advanced search/filter/pagination UI aur high-volume rendering.
+10. Staff/HR/task/report flows ki additional end-to-end coverage.
+
+PRODUCTION CONFIGURATION - USER/OWNER DATA REQUIRED
+- Persistent MongoDB replica set ya Atlas; current demo business storage nahin hai.
+- Private production session secret aur administrator credentials.
+- Real venue addresses, contacts, floor plans, capacity, prices, taxes aur policies.
+- Real licensed venue photos aur drone video; current aerial artwork labeled concept hai.
+- Authorized SMTP/Cloudinary/merchant credentials. Live email/payment delivery tested nahin hai.
+- Final Privacy/Terms, HTTPS domain, frontend/API deployment aur supervised reminder worker.
+- Durable upload storage, scheduled backups aur restore validation.
+
+Exact percentage reliable nahin: feature breadth implemented hai lekin production configuration aur upar listed development abhi baqi hai.
+Existing detailed checklist: royalvows/FEATURE_STATUS.md
+Run again: cd royalvows; npm run demo
+- Isolated browser checks 8/8: PASS.
+- Real wedding photos: hero, venue cards, gallery, dining updated; desktop/360px checked.
+- Windows Vite file watcher uses polling to avoid image replacement EBUSY crashes.

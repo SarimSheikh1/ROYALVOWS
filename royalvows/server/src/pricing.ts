@@ -20,8 +20,8 @@ export function price(
   )
     throw new PricingError("Guest count outside venue or collection limits");
   const rate = extras.menuPerHead ?? pack.perHead,
-    addons = extras.addons || 0,
-    discount = extras.discount || 0;
+    addons = extras.addons ?? 0,
+    discount = extras.discount ?? 0;
   for (const n of [
     venue.rental,
     pack.decor,
@@ -35,8 +35,12 @@ export function price(
   if (venue.taxBps > 10000) throw new PricingError("Invalid tax rate");
   const catering = guests * rate;
   const subtotal = venue.rental + catering + pack.decor + addons;
+  if (!Number.isSafeInteger(catering) || !Number.isSafeInteger(subtotal))
+    throw new PricingError("Invalid estimate");
   if (discount > subtotal) throw new PricingError("Discount exceeds subtotal");
-  const tax = Math.round(((subtotal - discount) * venue.taxBps) / 10000);
+  const tax = Number(
+    (BigInt(subtotal - discount) * BigInt(venue.taxBps) + 5000n) / 10000n,
+  );
   if (!Number.isSafeInteger(subtotal - discount + tax))
     throw new PricingError("Invalid estimate");
   return {

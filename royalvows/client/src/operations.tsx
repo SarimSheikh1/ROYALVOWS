@@ -23,6 +23,7 @@ const config: Record<string, { path: string; fields: Field[] }> = {
         options: ["event", "guest"],
       },
       { key: "description", label: "Description", type: "textarea" },
+      { key: "includedWithPackage", label: "Free with every collection", type: "boolean" },
       { key: "archived", label: "Archive service", type: "boolean" },
     ],
   },

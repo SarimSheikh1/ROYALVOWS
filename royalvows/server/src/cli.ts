@@ -1,3 +1,4 @@
+import { configurePackageOffer } from "./package-offer.js";
 import { Menu } from "./operations.js";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
@@ -38,7 +39,7 @@ try {
               "Climate control",
             ],
             image:
-              "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=1400&q=85",
+              ["/media/wedding-ballroom.webp", "/media/wedding-floral.webp", "/media/wedding-dining.webp", "/media/wedding-tables.webp"][i % 4],
             taxBps: 0,
             demo: true,
           },
@@ -108,6 +109,19 @@ try {
         },
         { upsert: true },
       );
+    const gallery = mongoose.model("GalleryImage");
+    for (const [i, media] of [
+      { url: "/media/wedding-ballroom.webp", category: "Interior", caption: "Golden chandeliers and a grand wedding ballroom" },
+      { url: "/media/wedding-floral.webp", category: "Floral Decor", caption: "Natural flowers and ivory wedding reception styling" },
+      { url: "/media/wedding-dining.webp", category: "Dining", caption: "Elegant reception tables beneath crystal chandeliers" },
+      { url: "/media/wedding-tables.webp", category: "Lighting", caption: "Warm candlelight and beautifully set wedding tables" },
+    ].entries()) {
+      await gallery.updateOne({ url: media.url }, { $setOnInsert: {
+        ...media, kind: "image", order: i, published: true,
+        provenance: "Real photograph by ISKRA Photography / Unsplash License. Illustrative inspiration; not a RoyalVows property. See MEDIA.md for source.",
+      } }, { upsert: true });
+    }
+    await configurePackageOffer();
     console.log("Demo catalog seeded without clearing records");
   } else if (process.argv[2] === "admin") {
     const { ADMIN_EMAIL, ADMIN_PASSWORD, ADMIN_NAME } = process.env;

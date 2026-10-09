@@ -12,7 +12,8 @@ const db = await MongoMemoryReplSet.create({
 });
 const uri = db.getUri("royalvows_browser_demo");
 const password = randomBytes(18).toString("base64url");
-const origin = "http://127.0.0.1:5174";
+const webPort = process.env.QA_WEB_PORT || "5175";
+const origin = "http://127.0.0.1:" + webPort;
 const children: any[] = [];
 function launch(args: string[], env: any = {}, cwd = process.cwd()) {
   const c = spawn(process.execPath, args, {
@@ -80,7 +81,7 @@ try {
       "--host",
       "127.0.0.1",
       "--port",
-      "5174",
+      webPort,
       "--strictPort",
     ],
     { API_PROXY_TARGET: "http://127.0.0.1:4102" },
@@ -110,6 +111,17 @@ try {
   ).toBeVisible();
   await page.screenshot({ path: "qa/home-desktop.png", fullPage: true });
   console.log("PASS desktop homepage and concept artwork");
+  const profileRequests: string[] = [];
+  const trackProfile = (request: any) => {
+    if (new URL(request.url()).pathname === "/api/profile") profileRequests.push(request.url());
+  };
+  page.on("request", trackProfile);
+  await page.goto(origin + "/palaces/" + venue._id);
+  await expect(page.getByRole("heading", { name: venue.name, exact: true })).toBeVisible();
+  await page.waitForTimeout(500);
+  expect(profileRequests).toHaveLength(0);
+  page.off("request", trackProfile);
+  console.log("PASS public venue pages do not request a private customer profile");
   await page.goto(origin + "/login");
   await page.getByLabel("Email", { exact: true }).fill("customer@qa.test");
   await page.getByLabel("Password", { exact: true }).fill(password);
@@ -118,11 +130,17 @@ try {
     page.getByRole("heading", { name: "Welcome, QA." }),
   ).toBeVisible();
   await page.goto(origin + "/planning");
+  await page.getByRole("button", { name: "3. Details & estimate" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a palace before continuing.");
   await page
     .getByLabel("Palace", { exact: true })
     .selectOption(String(venue._id));
   await page.getByLabel("Date", { exact: true }).fill("2027-02-20");
   await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a wedding collection before calculating your estimate.");
+  await page.getByRole("button", { name: "3. Details & estimate" }).click();
+  await expect(page.getByRole("alert")).toHaveText("Choose a wedding collection before calculating your estimate.");
   await page
     .getByLabel("Collection", { exact: true })
     .selectOption(String(pack._id));

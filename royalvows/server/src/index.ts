@@ -287,8 +287,8 @@ app.get("/api/availability/:id", async (req, res) => {
   });
 });
 const bookingInput = z.object({
-  venue: id,
-  package: id,
+  venue: z.string().regex(/^[a-f0-9]{24}$/i, "Choose a valid palace."),
+  package: z.string().regex(/^[a-f0-9]{24}$/i, "Choose a wedding collection."),
   date,
   slot,
   event: z.enum(["Barat", "Walima", "Mehndi", "Nikah"]),
@@ -317,15 +317,17 @@ async function estimate(b: any) {
   if (!v.eventTypes.includes(b.event))
     throw fail("This occasion is not available at this venue");
   if (b.date < today()) throw fail("Choose a future date");
-  const services = await Service.find({
+  const selectedServices = await Service.find({
     _id: { $in: b.addons },
     archived: false,
   });
   if (
-    services.length !== new Set(b.addons).size ||
+    selectedServices.length !== new Set(b.addons).size ||
     new Set(b.addons).size !== b.addons.length
   )
     throw fail("An add-on is unavailable or duplicated");
+  const includedServices = await Service.find({ includedWithPackage: true, archived: false });
+  const services = [...selectedServices, ...includedServices.filter((included) => !selectedServices.some((selected) => selected._id.equals(included._id)))];
   const menu = b.cateringMenu
     ? await Menu.findOne({ _id: b.cateringMenu, archived: false })
     : null;
@@ -341,7 +343,7 @@ async function estimate(b: any) {
   if (b.discountCode && !discount)
     throw fail("Discount code invalid for this venue or event date");
   const addonTotal = services.reduce(
-    (n, r) => n + r.rate! * (r.unit === "guest" ? b.guests : 1),
+    (n, r) => n + (r.includedWithPackage ? 0 : r.rate!) * (r.unit === "guest" ? b.guests : 1),
     0,
   );
   return {
@@ -352,7 +354,8 @@ async function estimate(b: any) {
     }),
     addonItems: services.map((r) => ({
       name: r.name,
-      rate: r.rate,
+      rate: r.includedWithPackage ? 0 : r.rate,
+      includedWithPackage: r.includedWithPackage,
       unit: r.unit,
     })),
     menu: menu?.name || "Collection menu",

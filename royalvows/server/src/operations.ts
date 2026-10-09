@@ -234,6 +234,7 @@ export function operations(app: any, auth: any, roles: any) {
         name: z.string().min(2).max(100),
         rate: amount,
         unit: z.enum(["event", "guest"]),
+        includedWithPackage: z.boolean().default(false),
         description: text,
         archived: z.boolean(),
       }),

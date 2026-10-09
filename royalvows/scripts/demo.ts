@@ -2,6 +2,15 @@ import { MongoMemoryReplSet } from "mongodb-memory-server";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile, readFile } from "node:fs/promises";
 import { randomBytes } from "node:crypto";
+import { createServer } from "node:net";
+async function assertPortAvailable(port: number) {
+  await new Promise<void>((resolve, reject) => {
+    const probe = createServer();
+    probe.once("error", () => reject(new Error(`Port ${port} is already in use. Open the existing RoyalVows session or stop it before starting another demo.`)));
+    probe.listen(port, "127.0.0.1", () => probe.close((error) => error ? reject(error) : resolve()));
+  });
+}
+await Promise.all([assertPortAvailable(4000), assertPortAvailable(5173)]);
 const db = await MongoMemoryReplSet.create({
   replSet: { count: 1 },
   binary: { version: "8.0.15" },
@@ -34,7 +43,7 @@ async function cli(mode: string) {
   });
 }
 await cli("seed");
-await cli("admin");
+let ownerEmail = "";
 try {
   const owner = JSON.parse(await readFile(".runtime/demo-owner.json", "utf8"));
   const { default: mongoose } = await import("mongoose");
@@ -52,18 +61,22 @@ try {
     },
     { upsert: true },
   );
+  ownerEmail = owner.email;
+  const { seedTestData } = await import("../server/src/test-data.js");
+  await seedTestData(owner.email);
   await mongoose.disconnect();
 } catch (error: any) {
   if (error.code !== "ENOENT") throw error;
+  await cli("admin");
 }
 
 await mkdir(".runtime", { recursive: true });
 await writeFile(
   ".runtime/demo-access.txt",
   "TEMPORARY REAL MONGODB DEMO. Data is removed when demo stops.\nURL: http://localhost:5173\nAdmin: " +
-    env.ADMIN_EMAIL +
+    (ownerEmail || env.ADMIN_EMAIL) +
     "\nPassword: " +
-    password +
+    (ownerEmail ? "Use your configured owner password" : password) +
     "\nRegister customer accounts through the website.\n",
 );
 children.push(
@@ -79,12 +92,12 @@ children.push(
 children.push(
   spawn(
     process.execPath,
-    ["../node_modules/vite/bin/vite.js", "--host", "127.0.0.1"],
+    ["../node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", "5173", "--strictPort"],
     { env, cwd: process.cwd() + "/client", stdio: "inherit" },
   ),
 );
 console.log(
-  "Temporary real MongoDB demo: http://localhost:5173. Private randomized admin access is in .runtime/demo-access.txt. Data disappears when stopped.",
+  "Temporary real MongoDB demo: http://localhost:5173. Private admin access details are in .runtime/demo-access.txt. Data disappears when stopped.",
 );
 async function stop() {
   for (const c of children) c.kill();

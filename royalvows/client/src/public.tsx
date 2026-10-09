@@ -1,3 +1,4 @@
+import { PackageOffer } from "./package-offer";
 import { businessDate } from "./core";
 import { PublishedReviews } from "./reviews";
 import { SaveVenue } from "./saved";
@@ -54,7 +55,7 @@ export function Home() {
         className="hero"
         style={{
           backgroundImage:
-            "linear-gradient(90deg,rgba(9,11,16,.75),rgba(9,11,16,.12)),url(/media/palace-aerial-concept.webp)",
+            "linear-gradient(90deg,rgba(9,11,16,.75),rgba(9,11,16,.12)),url(/media/wedding-ballroom.webp)",
         }}
       >
         <div className="hero-copy">
@@ -85,7 +86,7 @@ export function Home() {
           <span>01 &middot; THE ROYAL COLLECTION</span>
         </div>
         <small className="media-label">
-          Concept aerial visualization &middot; AI-generated fictional palace
+          Real wedding photography &middot; illustrative venue imagery
         </small>
       </section>
       <section className="statement">
@@ -180,7 +181,7 @@ export function Home() {
           </Link>
         </div>
         <img
-          src="https://images.unsplash.com/photo-1414235077428-338989a2e8c0?auto=format&fit=crop&w=1000&q=85"
+          src="/media/wedding-dining.webp"
           alt="Illustrative fine dining presentation"
           loading="lazy"
         />
@@ -483,6 +484,7 @@ export function Collections() {
     <main className="section page">
       <span className="eyebrow">A SIGNATURE FOR EVERY STORY</span>
       <h1>Wedding collections</h1>
+      <PackageOffer />
       <p>
         Database-managed demo prices. Your estimate is calculated on the server.
       </p>
@@ -538,8 +540,40 @@ export function Planning() {
   const set = (k: string, v: unknown) => {
     setForm({ ...form, [k]: v });
     setEstimate(null);
+    setError("");
   };
+  function validateStep(target: number) {
+    if (target < 1) return true;
+    const venue = venues.data?.find((v) => v._id === form.venue);
+    let message = "";
+    if (!venue) message = "Choose a palace before continuing.";
+    else if (!form.date || form.date < businessDate()) message = "Choose today or a future event date.";
+    else if (!Number.isInteger(form.guests) || form.guests < 1 || form.guests > venue.capacity) message = `Enter a whole guest count between 1 and ${venue.capacity} for this palace.`;
+    if (message) {
+      setError(message);
+      setStep(0);
+      return false;
+    }
+    if (target > 1) {
+      const collection = packs.data?.find((p) => p._id === form.package);
+      if (!collection) message = "Choose a wedding collection before calculating your estimate.";
+      else if (form.guests < collection.minGuests || form.guests > collection.maxGuests) message = `${collection.name} supports ${collection.minGuests} to ${collection.maxGuests} guests. Choose another collection or change your guest count.`;
+      if (message) {
+        setError(message);
+        setStep(1);
+        return false;
+      }
+    }
+    return true;
+  }
+  function goToStep(target: number) {
+    if (target <= step || validateStep(target)) {
+      setStep(target);
+      setError("");
+    }
+  }
   async function quote() {
+    if (!validateStep(2)) return;
     setBusy(true);
     setError("");
     try {
@@ -556,6 +590,7 @@ export function Planning() {
     }
   }
   async function submit() {
+    if (!validateStep(2)) return;
     if (!user) {
       nav("/login");
       return;
@@ -584,7 +619,7 @@ export function Planning() {
             <button
               className={step === i ? "active" : ""}
               key={s}
-              onClick={() => setStep(i)}
+              onClick={() => goToStep(i)}
             >
               {i + 1}. {s}
             </button>
@@ -662,6 +697,7 @@ export function Planning() {
           {step === 1 && (
             <>
               <h2>Your signature style</h2>
+              <PackageOffer />
               <label>
                 Collection
                 <select
@@ -723,11 +759,12 @@ export function Planning() {
                   ))}
                 </select>
               </label>
+              <PackageOffer />
               <h3>Signature add-ons</h3>
               {addons.data?.length === 0 && (
                 <p>No additional services configured.</p>
               )}
-              {addons.data?.map((a) => (
+              {addons.data?.filter((a) => !a.includedWithPackage).map((a) => (
                 <label className="check" key={a._id}>
                   <input
                     type="checkbox"
@@ -774,7 +811,7 @@ export function Planning() {
               <button onClick={() => setStep(step - 1)}>Back</button>
             )}
             {step < 2 && (
-              <button className="button" onClick={() => setStep(step + 1)}>
+              <button className="button" onClick={() => goToStep(step + 1)}>
                 Continue <ArrowRight size={16} />
               </button>
             )}
@@ -797,6 +834,7 @@ export function Planning() {
             <br />
             {form.date || "Date to be chosen"} &middot; {form.slot}
           </p>
+          <p>{packs.data?.find((p) => p._id === form.package)?.name || "Collection not chosen"}</p>
           <p>{form.theme}</p>
           {estimate ? (
             <>
@@ -1012,6 +1050,7 @@ function SignaturePreview() {
         </Link>
       </div>
       <State query={q} />
+      <PackageOffer />
       <div className="signature-list">
         {q.data?.map((r, i) => (
           <Link to="/collections" key={r._id}>

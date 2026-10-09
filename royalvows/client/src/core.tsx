@@ -7,7 +7,8 @@ export const money = (n: number) =>
     style: "currency",
     currency: "PKR",
     currencyDisplay: "code",
-    maximumFractionDigits: 0,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
   }).format(n / 100);
 let csrf = "";
 export async function response(path: string, method = "GET", body?: unknown) {
@@ -52,9 +53,10 @@ export function useAllBookings(path = "/bookings") {
     retry: 1,
   });
 }
-export function useData(path: string) {
+export function useData(path: string, enabled = true) {
   return useQuery<Row[]>({
     queryKey: [path],
+    enabled,
     queryFn: async () => {
       const first = await response(path);
       if (!Array.isArray(first.data) || !first.pagination) return first.data;
@@ -78,7 +80,7 @@ export function useUser() {
   });
 }
 export const image =
-  "https://images.unsplash.com/photo-1519167758481-83f550bb49b3?auto=format&fit=crop&w=2000&q=85";
+  "/media/wedding-tables.webp";
 export const themes = [
   "Royal Gold",
   "Ivory Elegance",

@@ -11,12 +11,13 @@
     "build": "node scripts/seo.mjs && npm run build --workspaces",
     "typecheck": "npm run typecheck --workspaces",
     "lint": "eslint client/src server/src",
-    "test": "npm test -w server",
+    "test": "npm test -w server && npm run test:guests",
     "seed": "npm run seed -w server",
     "create-admin": "npm run create-admin -w server",
     "test:integration": "tsx scripts/integration.ts",
     "demo": "tsx scripts/demo.ts",
     "test:browser": "tsx scripts/browser-qa.ts",
+    "test:site": "node scripts/site-audit.mjs",
     "test:guests": "tsx --test scripts/guest-csv.test.ts"
   },
   "devDependencies": {

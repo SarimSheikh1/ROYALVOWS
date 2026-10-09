@@ -5,6 +5,7 @@ import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import {
   User,
+  Service,
   Booking,
   Venue,
   Package,
@@ -76,12 +77,17 @@ async function account(email: string) {
 }
 try {
   await mongoose.connect(uri);
-  for (let i = 0; i < 100; i++) {
+  let ready = false;
+  for (let i = 0; i < 600; i++) {
     try {
-      if ((await request("/health")).ok) break;
+      if ((await request("/health")).ok) {
+        ready = true;
+        break;
+      }
     } catch {}
     await new Promise((r) => setTimeout(r, 100));
   }
+  assert.ok(ready, "Integration API did not become ready within 60 seconds");
   const a = await account("one@example.test"),
     b = await account("two@example.test");
   const venue = await Venue.create({
@@ -110,6 +116,19 @@ try {
     theme: "Ivory Elegance",
     notes: "",
   };
+  await check("complimentary package services are automatically included without charges or duplicates", async () => {
+    const sound = await Service.create({ name: "Test free sound", rate: 3500000, unit: "event", includedWithPackage: true, archived: false });
+    await Service.create({ name: "Test 10-minute dance", rate: 0, unit: "event", includedWithPackage: true, archived: false });
+    const lighting = await Service.create({ name: "Test paid lighting", rate: 8500, unit: "event", archived: false });
+    const quote = await (await request("/estimate", "POST", body)).json();
+    assert.equal(quote.data.addons, 0);
+    assert.equal(quote.data.addonItems.length, 2);
+    assert.ok(quote.data.addonItems.every((item: any) => item.rate === 0 && item.includedWithPackage));
+    const selected = await (await request("/estimate", "POST", { ...body, addons: [String(sound._id), String(lighting._id)] })).json();
+    assert.equal(selected.data.addons, 8500);
+    assert.equal(selected.data.addonItems.length, 3);
+    assert.equal((await request("/estimate", "POST", { ...body, addons: [String(sound._id), String(sound._id)] })).status, 400);
+  });
   let booking = "";
   await check(
     "concurrent bookings acquire exactly one atomic slot",

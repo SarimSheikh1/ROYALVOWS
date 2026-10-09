@@ -1330,3 +1330,28 @@ textarea {
 .seating .record-actions label {
   max-width: 180px;
 }
+
+.password-field { position: relative; display: block; }
+.password-field input { padding-right: 52px; width: 100%; }
+.password-field .password-toggle { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); width: 44px; height: 44px; padding: 0; border: 0; background: transparent; color: #a78042; display: grid; place-items: center; cursor: pointer; }
+.password-toggle:focus-visible { outline: 2px solid #a78042; outline-offset: -4px; }
+
+.wedding-music, .music-launcher { position: fixed; right: 18px; bottom: 18px; z-index: 25; background: #090b10; color: #f8f3e8; border: 1px solid #c9a76a; box-shadow: 0 8px 30px #090b1030; }
+.wedding-music { width: min(320px, calc(100vw - 36px)); padding: 12px; }
+.music-heading, .music-heading span, .music-actions, .music-actions button, .music-launcher { display: flex; align-items: center; gap: 8px; }
+.music-heading { justify-content: space-between; font-size: 12px; margin-bottom: 10px; }
+.music-heading button { padding: 6px; color: #f8f3e8; background: transparent; border: 0; }
+.music-video { height: 200px; width: 100%; background: #191b20; }
+.music-video iframe { width: 100%; height: 200px; border: 0; }
+.music-actions { justify-content: space-between; margin: 12px 0 8px; }
+.music-actions button, .music-launcher { padding: 9px 12px; font-size: 12px; }
+.music-actions button { background: #c9a76a; border: 0; color: #090b10; }
+.music-actions a { font-size: 10px; color: #f8f3e8; text-decoration: underline; }
+.wedding-music small { display: block; font-size: 10px; line-height: 1.5; color: #eee7dc; }
+
+.package-offer { padding: 24px; margin: 24px 0; border: 1px solid #c9a76a; background: #eee7dc; }
+.package-offer h3 { font-size: 30px; margin: 10px 0; }
+.package-offer p, .package-offer li { font-size: 13px; }
+.package-offer ul { padding-left: 20px; }
+.package-offer li { margin: 10px 0; }
+.package-offer strong { display: inline-block; margin-left: 10px; color: #426653; }

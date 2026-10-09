@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { api, useData, useUser, VenueCard, type Row } from "./core";
 export function SaveVenue({ id }: { id: string }) {
   const { data: session } = useUser();
-  const profile = useData("/profile");
+  const profile = useData("/profile", session?.user.role === "Customer");
   const qc = useQueryClient();
   const [message, setMessage] = useState("");
   if (!session || session.user.role !== "Customer") return null;
