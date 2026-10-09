@@ -130,6 +130,6 @@ The database is still temporary. Samples are recreated on each demo start; edits
 
 ## Wedding soundtrack and complimentary package benefits
 
-The site embeds the requested YouTube video `hghqd1eBTYQ` and attempts playback on each full page open/refresh. Audible autoplay depends on browser permission; a visible Play/Pause button and YouTube controls provide user-initiated playback. Closing the player stops it, and the music button reopens it. The soundtrack is streamed through the official YouTube player.
+The site embeds the requested YouTube video `hghqd1eBTYQ` and attempts playback on each full page open/refresh. Audible autoplay depends on browser permission; a visible Play/Pause button and YouTube controls provide user-initiated playback. The player box stays offscreen; only a small accessible music icon is displayed for pause/play. The soundtrack is streamed through the official YouTube player.
 
 Every active demo collection includes a complimentary sound system and a 10-minute dance. Included services are stored in MongoDB with `includedWithPackage`; the server automatically snapshots them at zero charge, even when not selected as paid add-ons. Paid extras remain chargeable. Historical booking snapshots are preserved. Admin Addons can edit the complimentary inclusion flag. Demo seed reapplies the owner's promotional benefits idempotently.

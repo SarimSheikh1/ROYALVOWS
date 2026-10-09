@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Music2, Pause, Play, X } from "lucide-react";
+import { Music2, Pause } from "lucide-react";
 const VIDEO_ID = "hghqd1eBTYQ";
 type Player = { playVideo: () => void; pauseVideo: () => void; destroy: () => void };
 type YouTube = { Player: new (element: HTMLElement, options: Record<string, unknown>) => Player };
@@ -25,14 +25,12 @@ function loadYouTube() {
   return apiPromise;
 }
 export function WeddingMusic() {
-  const [open, setOpen] = useState(true);
   const [ready, setReady] = useState(false);
   const [playing, setPlaying] = useState(false);
   const [message, setMessage] = useState("Loading your soundtrack...");
   const host = useRef<HTMLDivElement>(null);
   const player = useRef<Player | null>(null);
   useEffect(() => {
-    if (!open) return;
     let cancelled = false;
     let instance: Player | undefined;
     loadYouTube().then((YT) => {
@@ -64,12 +62,18 @@ export function WeddingMusic() {
       player.current = instance;
     }).catch(() => { if (!cancelled) setMessage("Music could not load. Open the song on YouTube."); });
     return () => { cancelled = true; instance?.destroy(); player.current = null; };
-  }, [open]);
-  if (!open) return <button className="music-launcher" onClick={() => { setReady(false); setPlaying(false); setMessage("Loading your soundtrack..."); setOpen(true); }}><Music2 size={18} /> Play music</button>;
-  return <section className="wedding-music" aria-label="Wedding soundtrack">
-    <div className="music-heading"><span><Music2 size={16} /> Wedding soundtrack</span><button aria-label="Close music player" onClick={() => setOpen(false)}><X size={18} /></button></div>
-    <div className="music-video" ref={host} />
-    <div className="music-actions"><button disabled={!ready} onClick={() => playing ? player.current?.pauseVideo() : player.current?.playVideo()}>{playing ? <Pause size={16} /> : <Play size={16} />}{playing ? "Pause music" : "Play music"}</button><a href={`https://www.youtube.com/watch?v=${VIDEO_ID}`} target="_blank" rel="noreferrer">Open on YouTube</a></div>
-    <small role="status">{message}</small>
-  </section>;
+  }, []);
+  return <>
+    <div className="music-background-player" ref={host} aria-hidden="true" />
+    <button
+      className="music-launcher music-icon"
+      disabled={!ready}
+      aria-label={playing ? "Pause music" : "Play music"}
+      aria-pressed={playing}
+      title={ready ? (playing ? "Pause music" : "Play music") : message}
+      onClick={() => playing ? player.current?.pauseVideo() : player.current?.playVideo()}
+    >
+      {playing ? <Pause size={20} /> : <Music2 size={20} />}
+    </button>
+  </>;
 }
