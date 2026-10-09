@@ -1,4 +1,5 @@
 import { WeddingMusic } from "./music";
+import { PageAnimations } from "./animations";
 import { SEO } from "./seo";
 
 import React, { useState, lazy, Suspense } from "react";
@@ -101,6 +102,7 @@ function App() {
   return (
     <BrowserRouter>
       <SEO />
+      <PageAnimations />
       <a className="skip" href="#content">
         Skip to content
       </a>

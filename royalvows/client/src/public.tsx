@@ -8,7 +8,6 @@ import { Link, useParams, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { ArrowUpRight, ArrowRight } from "lucide-react";
-import { motion, useReducedMotion } from "motion/react";
 import {
   api,
   useData,
@@ -46,7 +45,6 @@ function Intro() {
   ) : null;
 }
 export function Home() {
-  const reduced = useReducedMotion();
   const venues = useData("/venues");
   return (
     <>
@@ -60,14 +58,11 @@ export function Home() {
       >
         <div className="hero-copy">
           <span className="eyebrow">A CELEBRATION BEYOND THE ORDINARY</span>
-          <motion.h1
-            initial={reduced ? false : { opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-          >
+          <h1>
             Every love story
             <br />
             deserves <em>a palace.</em>
-          </motion.h1>
+          </h1>
           <p>
             Discover extraordinary venues, bespoke celebrations, and
             unforgettable moments crafted with timeless elegance.
@@ -89,6 +84,11 @@ export function Home() {
           Real wedding photography &middot; illustrative venue imagery
         </small>
       </section>
+      <div className="celebration-ribbon" aria-hidden="true">
+        <div className="celebration-ribbon-track">
+          {Array.from({ length: 3 }, (_, i) => <span key={i}>Timeless celebrations <i>✦</i> Signature palaces <i>✦</i> Your forever begins here <i>✦</i></span>)}
+        </div>
+      </div>
       <section className="statement">
         <span className="eyebrow">WELCOME TO ROYALVOWS</span>
         <h2>
